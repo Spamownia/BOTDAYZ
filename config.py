@@ -6,7 +6,7 @@ load_dotenv()
 # Discord
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
-    raise ValueError("Brak DISCORD_TOKEN w pliku .env!")
+    raise ValueError("Brak DISCORD_TOKEN w pliku .env lub w zmiennych środowiskowych Render!")
 
 # FTP
 FTP_HOST = os.getenv("FTP_HOST")
@@ -16,16 +16,16 @@ FTP_PASS = os.getenv("FTP_PASS")
 FTP_LOG_DIR = os.getenv("FTP_LOG_DIR", "/config/")
 
 if not all([FTP_HOST, FTP_USER, FTP_PASS]):
-    raise ValueError("Brak wymaganych danych FTP w pliku .env!")
+    raise ValueError("Brak wymaganych danych FTP w zmiennych środowiskowych!")
 
-# ID kanałów Discord – WPISZ SWOJE ID KANAŁÓW!
+# ←←←←←← WPISZ TUTAJ SWOJE ID KANAŁÓW DISCORD ←←←←←←
 CHANNEL_IDS = {
-    "connections": 1249732031634739203,  # np. 123456789012345678
-    "kills":       1249732031634739203,
-    "deaths":      1249732031634739203,
-    "admin":       1249732031634739203,
-    "chat":        1249732031634739203,
-    "debug":       1249732031634739203,  # ustaw na ID jeśli chcesz surowe logi (pomocne przy testach)
+    "connections": 1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA POŁĄCZENIA/ROZŁĄCZENIA
+    "kills":       1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA ZABÓJSTWA
+    "deaths":      1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA ŚMIERCI
+    "admin":       1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA AKCJE ADMINA
+    "chat":        1249732031634739203,                # <-- opcjonalnie ID kanału na chat w grze
+    "debug":       1249732031634739203,  # <-- NA CZAS TESTÓW WPISZ ID KANAŁU DEBUG (wszystkie linie logów)
 }
 
 # Ustawienia

@@ -10,16 +10,16 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
-FTP_LOG_DIR = os.getenv("FTP_LOG_DIR", "/logs/")
+FTP_LOG_DIR = os.getenv("FTP_LOG_DIR", "/config/")  # <-- zmienione na /config/
 
 # ID kanałów – zmień na swoje!
 CHANNEL_IDS = {
-    "connections": 1249732031634739203,  # dołączenia / wyjścia
-    "kills":       1249732031634739203,  # zabójstwa PvP i zombie
-    "deaths":      1249732031634739203,  # śmierci graczy (np. od zombie, upadku)
-    "admin":       1249732031634739203,  # akcje admina, kicki, bany
-    "chat":        1249732031634739203,  # wiadomości w grze (jeśli logowane)
-    "debug":       None                  # None = wyłączony
+    "connections": 123456789012345678,
+    "kills":       987654321098765432,
+    "deaths":      111222333444555666,
+    "admin":       222333444555666777,
+    "chat":        333444555666777888,
+    "debug":       None
 }
 
 # Ile minut wstecz przeczytać przy pierwszym uruchomieniu

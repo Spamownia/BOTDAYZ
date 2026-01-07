@@ -20,12 +20,12 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 # ID kanałów Discord – WPISZ SWOJE ID KANAŁÓW!
 CHANNEL_IDS = {
-    "connections": None,  # np. 123456789012345678
-    "kills":       None,
-    "deaths":      None,
-    "admin":       None,
-    "chat":        None,
-    "debug":       None,  # ustaw na ID jeśli chcesz surowe logi (pomocne przy testach)
+    "connections": 1249732031634739203,  # np. 123456789012345678
+    "kills":       1249732031634739203,
+    "deaths":      1249732031634739203,
+    "admin":       1249732031634739203,
+    "chat":        1249732031634739203,
+    "debug":       1249732031634739203,  # ustaw na ID jeśli chcesz surowe logi (pomocne przy testach)
 }
 
 # Ustawienia

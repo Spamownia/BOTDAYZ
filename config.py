@@ -25,7 +25,7 @@ CHANNEL_IDS = {
     "deaths":      1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA ŚMIERCI
     "admin":       1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA AKCJE ADMINA
     "chat":        1458887056834040012,                # <-- opcjonalnie ID kanału na chat w grze
-    "debug":       1249732031634739203,  # <-- NA CZAS TESTÓW WPISZ ID KANAŁU DEBUG (wszystkie linie logów)
+    "debug":       none,  # <-- NA CZAS TESTÓW WPISZ ID KANAŁU DEBUG (wszystkie linie logów)
 }
 
 # Ustawienia

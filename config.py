@@ -20,11 +20,11 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 # ←←←←←← WPISZ TUTAJ SWOJE ID KANAŁÓW DISCORD ←←←←←←
 CHANNEL_IDS = {
-    "connections": 1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA POŁĄCZENIA/ROZŁĄCZENIA
-    "kills":       1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA ZABÓJSTWA
-    "deaths":      1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA ŚMIERCI
-    "admin":       1249732031634739203,  # <-- ZMIEŃ NA ID KANAŁU NA AKCJE ADMINA
-    "chat":        1249732031634739203,                # <-- opcjonalnie ID kanału na chat w grze
+    "connections": 1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA POŁĄCZENIA/ROZŁĄCZENIA
+    "kills":       1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA ZABÓJSTWA
+    "deaths":      1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA ŚMIERCI
+    "admin":       1458887056834040012,  # <-- ZMIEŃ NA ID KANAŁU NA AKCJE ADMINA
+    "chat":        1458887056834040012,                # <-- opcjonalnie ID kanału na chat w grze
     "debug":       1249732031634739203,  # <-- NA CZAS TESTÓW WPISZ ID KANAŁU DEBUG (wszystkie linie logów)
 }
 

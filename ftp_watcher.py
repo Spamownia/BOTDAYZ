@@ -1,4 +1,4 @@
-# ftp_watcher.py – OSTATECZNA WERSJA Z STATE.JSON (nigdy więcej starych logów)
+# ftp_watcher.py – OSTATECZNA WERSJA (bezpieczne pobieranie + trwały stan)
 
 from ftplib import FTP
 import os
@@ -91,18 +91,35 @@ class DayZLogWatcher:
                 delta = size - last_size
                 print(f"[FTP] +{delta} bajtów → {filename}")
 
+                # Bezpieczne pobieranie dużych plików
+                if delta > 1_000_000:  # >1 MB
+                    print(f"[FTP] Plik za duży – pobieram tylko ostatnie ~500 KB")
+                    rest = max(last_size, size - 500_000)
+                else:
+                    rest = last_size
+
                 data = bytearray()
-                self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_size)
+                def append_data(block):
+                    data.extend(block)
+
+                self.ftp.retrbinary(f'RETR {filename}', append_data, rest=rest)
+
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
 
+                # Zawsze aktualizujemy stan na pełny rozmiar
                 self.tracked_files[filename] = size
                 updated = True
 
             except Exception as e:
-                print(f"[FTP] Błąd {filename}: {e}")
+                print(f"[FTP] Błąd przy {filename}: {e}")
+                continue
 
         if updated:
             self.save_state()
+
+        if new_content:
+            lines_count = len([l for l in new_content.splitlines() if l.strip()])
+            print(f"[FTP] Pobrano {lines_count} nowych linii")
 
         return new_content

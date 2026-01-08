@@ -1,5 +1,5 @@
 import ftputil
-from config import FTP_HOST, FTP_USER, FTP_PASS, FTP_PORT, FTP_LOG_DIR
+from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 class DayZLogWatcher:
     def __init__(self):
@@ -9,9 +9,11 @@ class DayZLogWatcher:
         print("[FTP] Inicjalizacja watcher'a")
 
     def connect(self):
-        print(f"[FTP] Próba połączenia z {FTP_HOST}:{FTP_PORT} jako {FTP_USER}")
+        # Poprawne połączenie z niestandardowym portem: host:port
+        host_with_port = f"{FTP_HOST}:{FTP_PORT}"
+        print(f"[FTP] Próba połączenia z {host_with_port} jako {FTP_USER}")
         try:
-            self.ftp = ftputil.FTPHost(FTP_HOST, FTP_USER, FTP_PASS, port=FTP_PORT)
+            self.ftp = ftputil.FTPHost(host_with_port, FTP_USER, FTP_PASS)
             print("[FTP] ✅ Połączono pomyślnie!")
         except Exception as e:
             print(f"[FTP] ❌ Błąd połączenia: {str(e)}")
@@ -30,11 +32,11 @@ class DayZLogWatcher:
             print(f"[FTP] Znaleziono plików .RPT: {len(rpt_files)} → {rpt_files}")
 
             if not rpt_files:
-                print("[FTP] ⚠️ Brak plików .RPT!")
+                print("[FTP] ⚠️ Brak plików .RPT w katalogu!")
                 return None, None
 
             latest = max(rpt_files, key=lambda f: self.ftp.path.getmtime(FTP_LOG_DIR + f))
-            full_path = FTP_LOG_DIR + latest
+            full_path = FTP_LOG_DIR + latest if not FTP_LOG_DIR.endswith('/') else FTP_LOG_DIR + latest
             print(f"[FTP] Najnowszy plik: {latest}")
             return full_path, latest
         except Exception as e:
@@ -64,8 +66,8 @@ class DayZLogWatcher:
                 f.seek(self.last_size)
                 new_data = f.read()
                 new_text = new_data.decode("utf-8", errors="replace")
-                lines_count = len(new_text.splitlines())
-                print(f"[FTP] Pobrano {len(new_data)} bajtów ({lines_count} linii)")
+                lines_count = len([l for l in new_text.splitlines() if l.strip()])
+                print(f"[FTP] Pobrano {len(new_data)} bajtów (~{lines_count} nowych linii)")
                 self.last_size = size
                 return new_text
 

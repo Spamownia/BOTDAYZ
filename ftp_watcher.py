@@ -7,7 +7,7 @@ class DayZLogWatcher:
         self.ftp = None
         self.current_file = None
         self.last_size = 0
-        print("[FTP] Inicjalizacja watcher'a – ftplib z LIST")
+        print("[FTP] Inicjalizacja watcher'a – ftplib dla .RPT i .ADM")
 
     def connect(self):
         print(f"[FTP] Próba połączenia z {FTP_HOST}:{FTP_PORT} jako {FTP_USER}")
@@ -20,7 +20,7 @@ class DayZLogWatcher:
             print(f"[FTP] ❌ Błąd połączenia: {str(e)}")
             self.ftp = None
 
-    def get_latest_rpt_file(self):
+    def get_latest_log_file(self):
         if not self.ftp:
             self.connect()
             if not self.ftp:
@@ -34,22 +34,23 @@ class DayZLogWatcher:
             self.ftp.retrlines('LIST', files.append)
             print(f"[FTP] Surowa lista LIST: {files}")
 
-            rpt_files = []
+            log_files = []
             for line in files:
                 parts = line.split()
                 if len(parts) >= 9:
                     filename = ' '.join(parts[8:])
-                    if filename.startswith("DayZServer_x64_") and filename.endswith(".RPT"):
-                        rpt_files.append(filename)
+                    if filename.startswith("DayZServer_x64_") and (filename.endswith(".RPT") or filename.endswith(".ADM")):
+                        log_files.append(filename)
 
-            print(f"[FTP] Znaleziono plików .RPT: {len(rpt_files)} → {rpt_files}")
+            print(f"[FTP] Znaleziono logów (.RPT + .ADM): {len(log_files)} → {log_files}")
 
-            if not rpt_files:
-                print("[FTP] ⚠️ Brak plików .RPT")
+            if not log_files:
+                print("[FTP] ⚠️ Brak plików .RPT ani .ADM!")
                 return None, None
 
-            latest = sorted(rpt_files)[-1]
-            print(f"[FTP] Wybrano najnowszy plik: {latest}")
+            # Najnowszy plik (alfabetycznie – nazwy mają datę/czas, więc działa)
+            latest = sorted(log_files)[-1]
+            print(f"[FTP] Wybrano najnowszy plik logów: {latest}")
             return latest, latest
 
         except Exception as e:
@@ -58,7 +59,7 @@ class DayZLogWatcher:
             return None, None
 
     def get_new_content(self):
-        filename, _ = self.get_latest_rpt_file()
+        filename, _ = self.get_latest_log_file()
         if not filename:
             return ""
 
@@ -87,6 +88,6 @@ class DayZLogWatcher:
             return new_text
 
         except Exception as e:
-            print(f"[FTP] Błąd odczytu pliku: {str(e)}")
+            print(f"[FTP] Błąd odczytu pliku {filename}: {str(e)}")
             self.ftp = None
             return ""

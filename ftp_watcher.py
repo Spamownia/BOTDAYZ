@@ -1,12 +1,34 @@
+# ftp_watcher.py – WERSJA Z TRWAŁYM STANEM (state.json)
+
 from ftplib import FTP
 import os
+import json
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
+
+STATE_FILE = "state.json"  # plik na dysku Rendera
 
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
-        self.tracked_files = {}  # {filename: last_size}
-        print("[FTP] Inicjalizacja watcher'a – śledzenie .RPT i .ADM osobno")
+        self.tracked_files = self.load_state()
+        print(f"[FTP] Inicjalizacja watcher'a – wczytano stan dla {len(self.tracked_files)} plików")
+
+    def load_state(self):
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, "r") as f:
+                    return json.load(f)
+            except:
+                print("[FTP] Błąd odczytu state.json – start od zera")
+        return {}
+
+    def save_state(self):
+        try:
+            with open(STATE_FILE, "w") as f:
+                json.dump(self.tracked_files, f)
+            print(f"[FTP] Zapisano stan: {len(self.tracked_files)} plików")
+        except Exception as e:
+            print(f"[FTP] Błąd zapisu state.json: {e}")
 
     def connect(self):
         if self.ftp:
@@ -16,16 +38,16 @@ class DayZLogWatcher:
             except:
                 self.ftp = None
 
-        print(f"[FTP] Próba połączenia z {FTP_HOST}:{FTP_PORT} jako {FTP_USER}")
+        print(f"[FTP] Łączenie z {FTP_HOST}:{FTP_PORT}...")
         try:
             self.ftp = FTP()
-            self.ftp.connect(host=FTP_HOST, port=FTP_PORT, timeout=15)
+            self.ftp.connect(host=FTP_HOST, port=FTP_PORT, timeout=20)
             self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
             self.ftp.cwd(FTP_LOG_DIR)
-            print("[FTP] ✅ Połączono pomyślnie!")
+            print("[FTP] ✅ Połączono")
             return True
         except Exception as e:
-            print(f"[FTP] ❌ Błąd połączenia: {str(e)}")
+            print(f"[FTP] ❌ Błąd połączenia: {e}")
             self.ftp = None
             return False
 
@@ -44,7 +66,7 @@ class DayZLogWatcher:
                         log_files.append(filename)
             return sorted(log_files)
         except Exception as e:
-            print(f"[FTP] Błąd LIST: {str(e)}")
+            print(f"[FTP] Błąd LIST: {e}")
             self.ftp = None
             return []
 
@@ -54,6 +76,8 @@ class DayZLogWatcher:
             return ""
 
         new_content = ""
+        updated = False
+
         for filename in log_files:
             try:
                 size = self.ftp.size(filename)
@@ -62,7 +86,8 @@ class DayZLogWatcher:
                 if size <= last_size:
                     continue
 
-                print(f"[FTP] Nowe dane w {filename}: +{size - last_size} bajtów")
+                delta = size - last_size
+                print(f"[FTP] Nowe dane w {filename}: +{delta} bajtów")
 
                 data = bytearray()
                 def append_data(block):
@@ -72,11 +97,16 @@ class DayZLogWatcher:
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
                 self.tracked_files[filename] = size
+                updated = True
 
             except Exception as e:
-                print(f"[FTP] Błąd przy {filename}: {str(e)}")
+                print(f"[FTP] Błąd przy {filename}: {e}")
                 continue
 
+        if updated:
+            self.save_state()
+
         if new_content:
-            print(f"[FTP] Łącznie pobrano ~{len(new_content.splitlines())} nowych linii")
+            lines_count = len([l for l in new_content.splitlines() if l.strip()])
+            print(f"[FTP] Pobrano {lines_count} nowych linii")
         return new_content

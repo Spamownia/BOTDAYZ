@@ -29,5 +29,5 @@ CHANNEL_IDS = {
 }
 
 # Ustawienia
-INITIAL_LOOKBACK_MINUTES = 10
-CHECK_INTERVAL = 15  # co ile sekund sprawdzać nowe linie
+INITIAL_LOOKBACK_MINUTES = 1
+CHECK_INTERVAL = 30  # co ile sekund sprawdzać nowe linie

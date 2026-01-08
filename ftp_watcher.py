@@ -1,4 +1,3 @@
-# ftp_watcher.py – POPRAWIONA WERSJA
 from ftplib import FTP
 import os
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
@@ -11,7 +10,12 @@ class DayZLogWatcher:
 
     def connect(self):
         if self.ftp:
-            return True
+            try:
+                self.ftp.voidcmd("NOOP")
+                return True
+            except:
+                self.ftp = None
+
         print(f"[FTP] Próba połączenia z {FTP_HOST}:{FTP_PORT} jako {FTP_USER}")
         try:
             self.ftp = FTP()
@@ -56,20 +60,17 @@ class DayZLogWatcher:
                 last_size = self.tracked_files.get(filename, 0)
 
                 if size <= last_size:
-                    continue  # nic nowego w tym pliku
+                    continue
 
-                print(f"[FTP] Nowe dane w {filename}: +{(size - last_size)} bajtów")
+                print(f"[FTP] Nowe dane w {filename}: +{size - last_size} bajtów")
 
                 data = bytearray()
                 def append_data(block):
                     data.extend(block)
-                # pobieramy tylko nowe dane
                 self.ftp.retrbinary(f'RETR {filename}', append_data, rest=last_size)
 
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
-
-                # aktualizujemy rozmiar
                 self.tracked_files[filename] = size
 
             except Exception as e:
@@ -77,5 +78,5 @@ class DayZLogWatcher:
                 continue
 
         if new_content:
-            print(f"[FTP] Łącznie pobrano {len(new_content.splitlines())} nowych linii")
+            print(f"[FTP] Łącznie pobrano ~{len(new_content.splitlines())} nowych linii")
         return new_content

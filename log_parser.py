@@ -3,35 +3,31 @@ from discord import Embed
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 from config import CHANNEL_IDS
 
-# Poprawione regexy - lepiej dopasowane do Twoich logów .RPT
+# Tylko najważniejsze zdarzenia – reszta ignorowana (zero spamu)
 CONNECT_PATTERN = re.compile(r'Player (?:"(.+?)"(?:\(steamID=\d+\))?|(.+?)\s*\(id=.+?\)) (?:is connected|has connected)')
-DISCONNECT_PATTERN = re.compile(r'Player (.+?)\s*\(\d+\) kicked from server: \d+ \((.+)\)|Player (.+?) disconnected')
+DISCONNECT_PATTERN = re.compile(r'Player (.+?)\s*\(\d+\) kicked from server|Player (.+?) disconnected|Player (.+?) has been disconnected')
 KILL_PATTERN = re.compile(r'(.+?)\(id=.+?\) killed by (.+?)\(id=.+?\) with (.+?) from (\d+) meters?')
-DEATH_PATTERN = re.compile(r'(.+?) (died|was killed by .+)')
+DEATH_PATTERN = re.compile(r'(.+?) (died|was killed by Zombie|was killed by fall|was killed by .+)')
 CHAT_PATTERN = re.compile(r'(.+?) \((Side|Global|Direct|Vehicle|Command) channel\): (.+)')
-ADMIN_PATTERN = re.compile(r'(admin|kick|ban|warning|shutdown)', re.IGNORECASE)
+ADMIN_PATTERN = re.compile(r'(kick|ban|admin|shutdown|restart)', re.IGNORECASE)
 
 async def process_line(bot, line: str):
     client = bot
-    print(f"[PARSER] Przetwarzam linię: {line[:50]}...")  # Debug do Rendera
 
     # Połączenia
     if match := CONNECT_PATTERN.search(line):
         player = match.group(1) or match.group(2)
         channel = client.get_channel(CHANNEL_IDS["connections"])
         if channel:
-            print(f"[PARSER] Wykryto połączenie: {player}")
             await channel.send(embed=create_connect_embed(player.strip(), "connect"))
-        return
+        return  # nie wysyłamy dalej
 
     # Rozłączenia / kicki
     if match := DISCONNECT_PATTERN.search(line):
-        player = match.group(1) or match.group(3) or "Nieznany"
-        reason = match.group(2) or "rozłączenie"
+        player = match.group(1) or match.group(2) or match.group(3) or "Nieznany"
         channel = client.get_channel(CHANNEL_IDS["connections"])
         if channel:
-            print(f"[PARSER] Wykryto rozłączenie: {player} ({reason})")
-            await channel.send(embed=create_connect_embed(f"{player} ({reason})", "disconnect"))
+            await channel.send(embed=create_connect_embed(f"{player} (rozłączono/kick)", "disconnect"))
         return
 
     # Zabójstwa PvP
@@ -39,39 +35,36 @@ async def process_line(bot, line: str):
         victim, killer, weapon, distance = match.groups()
         channel = client.get_channel(CHANNEL_IDS["kills"])
         if channel:
-            print(f"[PARSER] Wykryto zabójstwo: {victim} przez {killer}")
             await channel.send(embed=create_kill_embed(victim, killer, weapon, distance))
         return
 
-    # Śmierci (nie PvP)
+    # Śmierci
     if match := DEATH_PATTERN.search(line):
-        victim, cause = match.groups()
+        victim = match.group(1)
+        cause = match.group(2)
         channel = client.get_channel(CHANNEL_IDS["deaths"])
         if channel:
-            print(f"[PARSER] Wykryto śmierć: {victim} ({cause})")
             await channel.send(embed=create_death_embed(victim, cause))
         return
 
-    # Chat w grze
+    # Chat
     if match := CHAT_PATTERN.search(line):
         player, channel_type, message = match.groups()
         channel = client.get_channel(CHANNEL_IDS["chat"])
         if channel:
-            print(f"[PARSER] Wykryto chat: {player} - {message}")
             await channel.send(embed=create_chat_embed(player, channel_type, message))
         return
 
-    # Akcje admina / ważne
+    # Admin / ważne
     if ADMIN_PATTERN.search(line):
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
-            print(f"[PARSER] Wykryto admin action: {line.strip()}")
-            await channel.send(f"🛡️ **ADMIN / WAŻNE** → {line.strip()}")
+            await channel.send(f"🛡️ **ADMIN** → {line.strip()}")
         return
 
-    # Debug – wszystko inne
-    if CHANNEL_IDS["debug"]:
-        channel = client.get_channel(CHANNEL_IDS["debug"])
-        if channel:
-            print(f"[PARSER] Debug: {line.strip()}")
-            await channel.send(f"```log\n{line.strip()}\n```")
+    # Wszystko inne – IGNOROWANE (żadnego spamu!)
+    # Jeśli chcesz tymczasowo debug – odkomentuj poniższe:
+    # if CHANNEL_IDS["debug"]:
+    #     channel = client.get_channel(CHANNEL_IDS["debug"])
+    #     if channel:
+    #         await channel.send(f"```log\n{line.strip()}\n```")

@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from config import DISCORD_TOKEN, CHECK_INTERVAL
+from config import DISCORD_TOKEN, CHECK_INTERVAL, CHANNEL_IDS
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 import logging
@@ -9,16 +9,14 @@ import threading
 import os
 import asyncio
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
 app = Flask(__name__)
-
 @app.route('/')
 def home():
     return """
     <h1>🟢 Bot DayZ działa!</h1>
     <p>Monitoruje logi serwera i wysyła powiadomienia na Discord.</p>
-    <p>Sprawdź logi Rendera po nowe komunikaty.</p>
     """
 
 def run_flask():
@@ -27,46 +25,64 @@ def run_flask():
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 watcher = DayZLogWatcher()
 
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_logs():
     print(f"[TASK] Sprawdzam nowe logi (co {CHECK_INTERVAL}s)...")
+    
+    if not watcher.connect():
+        print("[TASK] ❌ Brak połączenia FTP")
+        return
+    
     content = watcher.get_new_content()
     if not content:
-        print("[TASK] Brak nowych danych z FTP")
+        print("[TASK] Brak nowych danych")
         return
-
+    
     lines = [line.strip() for line in content.splitlines() if line.strip()]
-    print(f"[TASK] Znaleziono {len(lines)} nowych linii z logów DayZ!")
+    print(f"[TASK] Znaleziono {len(lines)} nowych linii")
+    
+    # Ochrona przed floodem starych logów przy pierwszym uruchomieniu
+    if len(lines) > 500:
+        print(f"[TASK] ⚠️ ZA DUŻO LINII ({len(lines)}) – pomijam (stare logi). Od następnego cyklu będzie OK.")
+        return
+    
     for line in lines:
-        await process_line(bot, line)
+        try:
+            await process_line(bot, line)
+        except Exception as e:
+            print(f"[BŁĄD przetwarzania linii]: {e}")
 
 @bot.event
 async def on_ready():
     print("════════════════════════════════════════════════")
-    print(f"Bot zalogowany jako: {bot.user} (ID: {bot.user.id})")
+    print(f"Bot zalogowany jako: {bot.user}")
     print(f"Połączony z {len(bot.guilds)} serwerami")
-    print(f"Task check_logs uruchomiony co {CHECK_INTERVAL} sekund")
     print("════════════════════════════════════════════════")
-    
-    # Ręczny start taska z opóźnieniem
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)
     if not check_logs.is_running():
         check_logs.start()
-        print("[TASK] Task check_logs STARTED")
+        print("[TASK] check_logs STARTED")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def status(ctx):
-    await ctx.send("✅ Bot jest online i monitoruje logi DayZ")
+    await ctx.send("✅ Bot online i monitoruje logi")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restartftp(ctx):
     watcher.__init__()
-    await ctx.send("🔄 Połączenie FTP zresetowane")
+    await ctx.send("🔄 FTP watcher zresetowany")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ftpstatus(ctx):
+    if watcher.connect():
+        await ctx.send("🟢 FTP połączone")
+    else:
+        await ctx.send("🔴 FTP błąd połączenia")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()

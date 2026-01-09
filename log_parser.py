@@ -1,84 +1,83 @@
-# log_parser.py – WERSJA Z POPRAWIONYMI REGEXAMI + DEBUGIEM LOGIN/LOGOUT
+# log_parser.py – PEŁNA WERSJA DOPASOWANA DO TWOICH LOGÓW
 
 import re
+from discord import Embed
 from datetime import datetime
 from config import CHANNEL_IDS
-
-# Elastyczne regexy dla loginu i logoutu z .RPT
-# Przykład login: Login ID: 76561199031037111 IP: 190.8.165.124 (VE) Name: JuanDavid
-LOGIN_PATTERN = re.compile(r'Login ID:\s*(\w+)\s+IP:\s*([\d.]+)\s*\(VE\)\s*Name:\s*(\w+)')
-
-# Przykład logout: Logout ID: 76561199031037111 Minutes: 1.07 Name: JuanDavid Location: -451190.188 -893436.062 390.130
-LOGOUT_PATTERN = re.compile(r'Logout ID:\s*(\w+)\s+Minutes:\s*([\d.]+)\s+Name:\s*(\w+)\s+Location:\s*([-.\d]+)\s+([-.\d]+)\s+([-.\d]+)')
-
-# Chat z .ADM
-CHAT_PATTERN = re.compile(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=.*?\)\): (.+)')
 
 async def process_line(bot, line: str):
     client = bot
     line = line.strip()
 
-    # === TYMCZASOWY DEBUG – wszystkie linie z Login/Logout (wyłącz później) ===
-    if "Login ID:" in line or "Logout ID:" in line:
-        debug_channel = client.get_channel(CHANNEL_IDS["debug"]) if CHANNEL_IDS["debug"] else None
-        if debug_channel:
-            await debug_channel.send(f"```log\nRAW LINE: {line}\n```")
+    # === LOGIN – dodawanie do kolejki logowania ===
+    if "[Login]: Adding player" in line:
+        match = re.search(r'Adding player (\w+) \((\d+)\)', line)
+        if match:
+            name = match.group(1)
+            dpnid = match.group(2)
+            message = f"🟢 **Login** → Gracz {name} (dpnid: {dpnid}) dodany do kolejki logowania"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
+        return
 
-    # === LOGIN – tekstowa wiadomość ===
-    if match := LOGIN_PATTERN.search(line):
-        player_id = match.group(1)
-        ip = match.group(2)
-        name = match.group(3)
+    # === LOGIN – finalne połączenie gracza ===
+    if 'Player "' in line and "is connected" in line:
+        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
+        if match:
+            name = match.group(1)
+            steamid = match.group(2)
+            message = f"🟢 **Połączono** → {name} (SteamID: {steamid})"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
+        return
 
-        message = f"🟢 Login ID: {player_id} IP: {ip} (VE) Name: {name}"
-
+    # === DISCONNECT – różne warianty rozłączenia ===
+    if "[Disconnect]:" in line:
+        # Wszystkie linie z [Disconnect]:
+        message = f"🔴 **Rozłączono** → {line.split(':', 1)[1].strip()}"
         channel = client.get_channel(CHANNEL_IDS["connections"])
         if channel:
             await channel.send(message)
         return
 
-    # === LOGOUT – tekstowa wiadomość ===
-    if match := LOGOUT_PATTERN.search(line):
-        player_id = match.group(1)
-        minutes = match.group(2)
-        name = match.group(3)
-        x, y, z = match.group(4), match.group(5), match.group(6)
-
-        message = (
-            f"🔴 Logout ID: {player_id} Minutes: {minutes} Name: {name} Location:\n"
-            f"{x} {y} {z}"
-        )
-
-        channel = client.get_channel(CHANNEL_IDS["connections"])
-        if channel:
-            await channel.send(message)
+    # === DISCONNECT – standardowa wiadomość o wylogowaniu ===
+    if 'has been disconnected' in line:
+        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
+        if match:
+            name = match.group(1)
+            player_id = match.group(2)
+            message = f"🔴 **Wyszedł z serwera** → {name} (id: {player_id})"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
         return
 
-    # === CHAT ===
-    if match := CHAT_PATTERN.search(line):
-        channel_type, player, message_text = match.groups()
+    # === CHAT Z .ADM ===
+    if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
+        channel_type, player, msg = match.groups()
         channel = client.get_channel(CHANNEL_IDS["chat"])
         if channel:
-            embed = discord.Embed(
-                title="💬 Chat w grze",
+            embed = Embed(
+                title=f"💬 Chat [{channel_type}]",
                 color=0x00FFFF,
                 timestamp=datetime.utcnow()
             )
             embed.add_field(name="Gracz", value=player, inline=True)
-            embed.add_field(name="Kanał", value=channel_type, inline=True)
-            embed.add_field(name="Wiadomość", value=message_text, inline=False)
+            embed.add_field(name="Wiadomość", value=msg, inline=False)
             embed.set_footer(text="DayZ Server Log")
             await channel.send(embed=embed)
         return
 
-    # === COT ===
+    # === COT – akcje admina ===
     if "[COT]" in line:
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # === OGÓLNY DEBUG (wszystko) – wyłącz po testach ===
+    # === DEBUG – wszystkie linie (wyłącz po testach ustawiając debug: None w config) ===
     if CHANNEL_IDS["debug"]:
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:

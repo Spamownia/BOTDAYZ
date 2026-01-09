@@ -1,4 +1,4 @@
-# ftp_watcher.py – OSTATECZNA WERSJA (bezpieczne pobieranie + trwały stan)
+# ftp_watcher.py – WERSJA Z POBIERANIEM TYLKO KOŃCÓWKI NOWEGO PLIKU
 
 from ftplib import FTP
 import os
@@ -91,12 +91,11 @@ class DayZLogWatcher:
                 delta = size - last_size
                 print(f"[FTP] +{delta} bajtów → {filename}")
 
-                # Bezpieczne pobieranie dużych plików
-                if delta > 1_000_000:  # >1 MB
-                    print(f"[FTP] Plik za duży – pobieram tylko ostatnie ~500 KB")
-                    rest = max(last_size, size - 500_000)
-                else:
-                    rest = last_size
+                # Bezpieczne pobieranie – dla dużych delta pobieramy tylko ostatnie 100 KB
+                rest = last_size
+                if delta > 100_000:  # >100 KB
+                    print(f"[FTP] Plik za duży – pobieram tylko ostatnie 100 KB")
+                    rest = max(last_size, size - 100_000)
 
                 data = bytearray()
                 def append_data(block):
@@ -107,7 +106,6 @@ class DayZLogWatcher:
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
 
-                # Zawsze aktualizujemy stan na pełny rozmiar
                 self.tracked_files[filename] = size
                 updated = True
 

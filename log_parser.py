@@ -1,33 +1,40 @@
-# log_parser.py – WERSJA BEZ SPAMU DISCONNECT (tylko najważniejsze logowanie)
+# log_parser.py – WERSJA Z CZASEM ONLINE PRZY WYLOGOWANIU
 
 import re
+from datetime import datetime, timedelta
 from discord import Embed
-from datetime import datetime
 from config import CHANNEL_IDS
+
+# Słownik do przechowywania czasu logowania gracza (SteamID → datetime obiektu połączenia)
+player_login_times = {}
 
 async def process_line(bot, line: str):
     client = bot
     line = line.strip()
+    current_time = datetime.utcnow()  # przybliżony czas serwera (DayZ używa UTC)
 
-    # === 1. KOLEJKOWANIE – dodanie do kolejki logowania ===
+    # === 1. DODANIE DO KOLEJKI LOGOWANIA ===
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
-            dpnid = match.group(2)
-            message = f"🟢 **Login** → Gracz {name} (dpnid: {dpnid}) dodany do kolejki logowania"
+            message = f"🟢 **Login** → Gracz {name} → Dodany do kolejki logowania"
 
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(message)
         return
 
-    # === 2. FINALNE POŁĄCZENIE – gracz w pełni zalogowany ===
+    # === 2. FINALNE POŁĄCZENIE – zapisujemy czas logowania ===
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
+
+            # Zapamiętujemy przybliżony czas połączenia
+            player_login_times[steamid] = current_time
+
             message = f"🟢 **Połączono** → {name} (SteamID: {steamid})"
 
             channel = client.get_channel(CHANNEL_IDS["connections"])
@@ -35,13 +42,26 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # === 3. TYLKO STANDARDOWE WYLOGOWANIE Z .ADM (opcjonalne – czysta informacja) ===
+    # === 3. WYLOGOWANIE Z .ADM – z obliczeniem czasu online ===
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1)
-            player_id = match.group(2)
-            message = f"🔴 **Wyszedł z serwera** → {name} (id: {player_id})"
+            guid = match.group(2)  # to jest GUID
+
+            # Szukamy czasu logowania po SteamID – jeśli nie ma, próbujemy po GUID (rzadko, ale na wszelki wypadek)
+            time_online_str = "czas nieznany"
+            for steamid, login_time in player_login_times.items():
+                if steamid in guid or guid in steamid:  # luźne dopasowanie
+                    delta = current_time - login_time
+                    minutes = int(delta.total_seconds() // 60)
+                    seconds = int(delta.total_seconds() % 60)
+                    time_online_str = f"{minutes} min {seconds} s"
+                    # Usuwamy z pamięci po wylogowaniu
+                    del player_login_times[steamid]
+                    break
+
+            message = f"🔴 **Rozłączono** → {name} ({guid}) → {time_online_str}"
 
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
@@ -71,7 +91,7 @@ async def process_line(bot, line: str):
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # === DEBUG – opcjonalny (wyłącz po testach) ===
+    # === DEBUG – opcjonalny ===
     if CHANNEL_IDS["debug"]:
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:

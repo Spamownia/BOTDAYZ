@@ -18,7 +18,7 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 # ←←←←←← WPISZ TUTAJ SWOJE ID KANAŁÓW DISCORD ←←←←←←
 CHANNEL_IDS = {
-    "connections": 1458909797121527849,  # połączenia/rozłączenia
+    "connections": 1459206440836141302,  # połączenia/rozłączenia
     "kills": 1458909797121527849,        # zabójstwa (jeśli chcesz oddzielić – zmień)
     "deaths": 1458909797121527849,       # śmierci (obecnie ten sam co kills)
     "admin": 1458909797121527849,        # akcje admina i COT

@@ -1,11 +1,10 @@
-# log_parser.py – OSTATECZNA WERSJA (tylko embedy z .RPT jak na screenie)
+# log_parser.py – WERSJA Z TEKSTOWYMI WIADOMOŚCIAMI JAK NA SCREENIE
 
 import re
-from discord import Embed
 from datetime import datetime
 from config import CHANNEL_IDS
 
-# Regexy z .RPT – login i logout
+# Regexy z .RPT
 LOGIN_PATTERN = re.compile(r'Login ID: (\w+) IP: ([\d.]+) \(VE\) Name: (\w+)')
 LOGOUT_PATTERN = re.compile(r'Logout ID: (\w+) Minutes: ([\d.]+) Name: (\w+) Location: ([-.\d]+), ([-.\d]+), ([-.\d]+)')
 
@@ -15,57 +14,49 @@ CHAT_PATTERN = re.compile(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=.*?\)\): (.+)')
 async def process_line(bot, line: str):
     client = bot
 
-    # === LOGIN Z .RPT – zielony, dokładnie jak na screenie ===
+    # === LOGIN – zielona wiadomość tekstowa ===
     if match := LOGIN_PATTERN.search(line):
         player_id = match.group(1)
         ip = match.group(2)
         name = match.group(3)
 
-        embed = Embed(
-            title=f"Login ID: {player_id} IP: {ip} (VE) Name: {name}",
-            color=0x00FF00,  # zielony
-            timestamp=datetime.utcnow()
-        )
-        embed.set_footer(text="DayZ Server Log")
+        message = f"🟢 Login ID: {player_id} IP: {ip} (VE) Name: {name}"
 
         channel = client.get_channel(CHANNEL_IDS["connections"])
         if channel:
-            await channel.send(embed=embed)
+            await channel.send(message)
         return
 
-    # === LOGOUT Z .RPT – czerwony, z czasem i lokalizacją ===
+    # === LOGOUT – czerwona wiadomość tekstowa z lokalizacją w drugiej linii ===
     if match := LOGOUT_PATTERN.search(line):
         player_id = match.group(1)
         minutes = match.group(2)
         name = match.group(3)
         x, y, z = match.group(4), match.group(5), match.group(6)
 
-        embed = Embed(
-            title=f"Logout ID: {player_id} Minutes: {minutes} Name: {name} Location:",
-            description=f"{x} {y} {z}",
-            color=0xFF0000,  # czerwony
-            timestamp=datetime.utcnow()
+        message = (
+            f"🔴 Logout ID: {player_id} Minutes: {minutes} Name: {name} Location:\n"
+            f"{x} {y} {z}"
         )
-        embed.set_footer(text="DayZ Server Log")
 
         channel = client.get_channel(CHANNEL_IDS["connections"])
         if channel:
-            await channel.send(embed=embed)
+            await channel.send(message)
         return
 
     # === CHAT Z .ADM ===
     if match := CHAT_PATTERN.search(line):
-        channel_type, player, message = match.groups()
+        channel_type, player, message_text = match.groups()
         channel = client.get_channel(CHANNEL_IDS["chat"])
         if channel:
-            embed = Embed(
+            embed = discord.Embed(
                 title="💬 Chat w grze",
                 color=0x00FFFF,
                 timestamp=datetime.utcnow()
             )
             embed.add_field(name="Gracz", value=player, inline=True)
             embed.add_field(name="Kanał", value=channel_type, inline=True)
-            embed.add_field(name="Wiadomość", value=message, inline=False)
+            embed.add_field(name="Wiadomość", value=message_text, inline=False)
             embed.set_footer(text="DayZ Server Log")
             await channel.send(embed=embed)
         return

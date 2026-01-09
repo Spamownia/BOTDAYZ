@@ -23,7 +23,7 @@ CHANNEL_IDS = {
     "deaths": 1458909797121527849,       # śmierci (obecnie ten sam co kills)
     "admin": 1458909797121527849,        # akcje admina i COT
     "chat": 1458909797121527849,         # chat w grze (opcjonalnie)
-    "debug": None,                       # ← WPISZ TU ID KANAŁU TESTOWEGO (np. prywatny) – później ustaw na None
+    "debug": 1249732031634739203,                       # ← WPISZ TU ID KANAŁU TESTOWEGO (np. prywatny) – później ustaw na None
 }
 
 # Ustawienia

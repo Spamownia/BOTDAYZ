@@ -1,91 +1,123 @@
-# log_parser.py – FINALNA WERSJA Z CZASEM ONLINE
+# ftp_watcher.py – PEŁNY I SPRAWDZONY KOD (z bezpiecznym pobieraniem i state.json)
 
-import re
-from datetime import datetime
-from discord import Embed
-from config import CHANNEL_IDS
+from ftplib import FTP
+import os
+import json
+from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
-# Słownik: nazwa gracza → czas logowania
-player_login_time = {}
+STATE_FILE = "state.json"
 
-async def process_line(bot, line: str):
-    client = bot
-    line = line.strip()
-    current_time = datetime.utcnow()
+class DayZLogWatcher:
+    def __init__(self):
+        self.ftp = None
+        self.tracked_files = self.load_state()
+        print(f"[FTP] Wczytano stan dla {len(self.tracked_files)} plików logów")
 
-    # === 1. DODANIE DO KOLEJKI ===
-    if "[Login]: Adding player" in line:
-        match = re.search(r'Adding player (\w+) \((\d+)\)', line)
-        if match:
-            name = match.group(1)
-            message = f"🟢 **Login** → Gracz {name} → Dodany do kolejki logowania"
+    def load_state(self):
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, "r") as f:
+                    data = json.load(f)
+                    print(f"[FTP] Odtworzono pozycję z {len(data)} plików")
+                    return data
+            except Exception as e:
+                print(f"[FTP] Błąd odczytu state.json: {e}")
+        return {}
 
-            channel = client.get_channel(CHANNEL_IDS["connections"])
-            if channel:
-                await channel.send(message)
-        return
+    def save_state(self):
+        try:
+            with open(STATE_FILE, "w") as f:
+                json.dump(self.tracked_files, f)
+            print(f"[FTP] Zaktualizowano state.json ({len(self.tracked_files)} plików)")
+        except Exception as e:
+            print(f"[FTP] Nie udało się zapisać state.json: {e}")
 
-    # === 2. FINALNE POŁĄCZENIE – zapisujemy czas ===
-    if 'Player "' in line and "is connected" in line:
-        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
-        if match:
-            name = match.group(1)
-            steamid = match.group(2)
+    def connect(self):
+        if self.ftp:
+            try:
+                self.ftp.voidcmd("NOOP")
+                return True
+            except:
+                self.ftp = None
 
-            # Zapamiętujemy czas pod nazwą gracza
-            player_login_time[name] = current_time
+        print(f"[FTP] Łączenie z {FTP_HOST}:{FTP_PORT}...")
+        try:
+            self.ftp = FTP()
+            self.ftp.connect(host=FTP_HOST, port=FTP_PORT, timeout=20)
+            self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
+            self.ftp.cwd(FTP_LOG_DIR)
+            print("[FTP] Połączono z FTP")
+            return True
+        except Exception as e:
+            print(f"[FTP] Błąd połączenia: {e}")
+            self.ftp = None
+            return False
 
-            message = f"🟢 **Połączono** → {name} (SteamID: {steamid})"
+    def get_log_files(self):
+        if not self.connect():
+            return []
+        try:
+            files = []
+            self.ftp.retrlines('LIST', files.append)
+            log_files = []
+            for line in files:
+                parts = line.split()
+                if len(parts) >= 9:
+                    filename = ' '.join(parts[8:])
+                    if filename.startswith("DayZServer_x64_") and filename.endswith((".RPT", ".ADM")):
+                        log_files.append(filename)
+            return sorted(log_files)
+        except Exception as e:
+            print(f"[FTP] Błąd listy plików: {e}")
+            self.ftp = None
+            return []
 
-            channel = client.get_channel(CHANNEL_IDS["connections"])
-            if channel:
-                await channel.send(message)
-        return
+    def get_new_content(self):
+        log_files = self.get_log_files()
+        if not log_files:
+            return ""
 
-    # === 3. WYLOGOWANIE – z czasem online ===
-    if "has been disconnected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
-        if match:
-            name = match.group(1)
-            guid = match.group(2)
+        new_content = ""
+        updated = False
 
-            time_online_str = "czas nieznany"
-            if name in player_login_time:
-                delta = current_time - player_login_time[name]
-                minutes = int(delta.total_seconds() // 60)
-                seconds = int(delta.total_seconds() % 60)
-                time_online_str = f"{minutes} min {seconds} s"
-                del player_login_time[name]  # czyścimy
+        for filename in log_files:
+            try:
+                size = self.ftp.size(filename)
+                last_size = self.tracked_files.get(filename, 0)
 
-            message = f"🔴 **Rozłączono** → {name} ({guid}) → {time_online_str}"
+                if size <= last_size:
+                    continue
 
-            channel = client.get_channel(CHANNEL_IDS["connections"])
-            if channel:
-                await channel.send(message)
-        return
+                delta = size - last_size
+                print(f"[FTP] +{delta} bajtów → {filename}")
 
-    # === CHAT ===
-    if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
-        channel_type, player, msg = match.groups()
-        channel = client.get_channel(CHANNEL_IDS["chat"])
-        if channel:
-            embed = Embed(title=f"💬 Chat [{channel_type}]", color=0x00FFFF, timestamp=datetime.utcnow())
-            embed.add_field(name="Gracz", value=player, inline=True)
-            embed.add_field(name="Wiadomość", value=msg, inline=False)
-            embed.set_footer(text="DayZ Server Log")
-            await channel.send(embed=embed)
-        return
+                # Bezpieczne pobieranie – tylko ostatnie 100 KB przy dużych plikach
+                rest = last_size
+                if delta > 100_000:
+                    print(f"[FTP] Plik za duży – pobieram tylko ostatnie 100 KB")
+                    rest = max(last_size, size - 100_000)
 
-    # === COT ===
-    if "[COT]" in line:
-        channel = client.get_channel(CHANNEL_IDS["admin"])
-        if channel:
-            await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
-        return
+                data = bytearray()
+                def append_data(block):
+                    data.extend(block)
 
-    # === DEBUG (wyłącz po testach) ===
-    if CHANNEL_IDS["debug"]:
-        debug_channel = client.get_channel(CHANNEL_IDS["debug"])
-        if debug_channel:
-            content = line[:1897] + "..." if len(line) > 1900 else line
-            await debug_channel.send(f"```log\n{content}\n```")
+                self.ftp.retrbinary(f'RETR {filename}', append_data, rest=rest)
+
+                text = data.decode("utf-8", errors="replace")
+                new_content += text
+
+                self.tracked_files[filename] = size
+                updated = True
+
+            except Exception as e:
+                print(f"[FTP] Błąd przy {filename}: {e}")
+                continue
+
+        if updated:
+            self.save_state()
+
+        if new_content:
+            lines_count = len([l for l in new_content.splitlines() if l.strip()])
+            print(f"[FTP] Pobrano {lines_count} nowych linii")
+
+        return new_content

@@ -1,4 +1,4 @@
-# log_parser.py – WERSJA Z KOLEJKOWANIEM, LOGOWANIEM I WYLOGOWANIEM
+# log_parser.py – WERSJA BEZ SPAMU DISCONNECT (tylko najważniejsze logowanie)
 
 import re
 from discord import Embed
@@ -35,17 +35,8 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # === 3. WYLOGOWANIE / ROZŁĄCZENIE – wszystkie linie z [Disconnect]: ===
-    if "[Disconnect]:" in line:
-        message = f"🔴 **Rozłączono** → {line.split(':', 1)[1].strip()}"
-
-        channel = client.get_channel(CHANNEL_IDS["connections"])
-        if channel:
-            await channel.send(message)
-        return
-
-    # === DODATKOWO – standardowa wiadomość "has been disconnected" (z .ADM) ===
-    if "has been disconnected" in line:
+    # === 3. TYLKO STANDARDOWE WYLOGOWANIE Z .ADM (opcjonalne – czysta informacja) ===
+    if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1)

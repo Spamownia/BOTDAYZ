@@ -23,7 +23,7 @@ CHANNEL_IDS = {
     "connections": 1459206440836141302,  # połączenia / rozłączenia
     "kills": 1458909797121527849,
     "deaths": 1458909797121527849,
-    "admin": 1458909797121527849,
+    "admin": 1460000218232652071,
     "chat": 1459919995919143024,         # domyślny dla chatu (jeśli nie ma mapowania)
     "debug": None                        # wyłącz debug, żeby uniknąć rate limit
 }

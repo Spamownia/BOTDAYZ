@@ -1,4 +1,4 @@
-# log_parser.py – WERSJA Z CZASEM ONLINE + CHAT W JEDNEJ LINII Z KOLOROWANIEM DIFF
+# log_parser.py – WERSJA Z CZASEM ONLINE + CHAT W JEDNEJ LINII Z DIFF
 
 import re
 from datetime import datetime
@@ -70,7 +70,7 @@ async def process_line(bot, line: str):
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Prefix koloru diff + pogrubienia
+        # Prefix koloru diff
         diff_prefix_map = {
             "Global": "+ ",     # zielony
             "Admin":  "- ",     # czerwony
@@ -88,7 +88,7 @@ async def process_line(bot, line: str):
             # Jedna linia z pogrubieniami
             message_line = f"**{chat_type}** | **{chat_time}** | **{player}**: {message_text}"
 
-            # Wysyłamy w bloku diff
+            # Wysyłamy w bloku diff – poprawny f-string
             await channel.send(f"```diff
 
         return

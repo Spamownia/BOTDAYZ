@@ -1,4 +1,4 @@
-# log_parser.py – KOLOROWY TEKST ANSI (Team teraz NIEBIESKI)
+# log_parser.py – KOLOROWY TEKST ANSI (logi i chat w kolorach)
 
 import re
 from datetime import datetime
@@ -13,18 +13,18 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # 1. KOLEJKOWANIE
+    # 1. KOLEJKOWANIE – zielony tekst ANSI
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
-            message = f"🟢 Login → Gracz {name} → Dodany do kolejki logowania"
+            message_line = f"Login → Gracz {name} → Dodany do kolejki logowania"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
-                await channel.send(message)
+                await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 2. FINALNE POŁĄCZENIE
+    # 2. FINALNE POŁĄCZENIE – zielony tekst ANSI
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
@@ -33,13 +33,13 @@ async def process_line(bot, line: str):
 
             player_login_times[name] = current_time
 
-            message = f"🟢 Połączono → {name} (SteamID: {steamid})"
+            message_line = f"Połączono → {name} (SteamID: {steamid})"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
-                await channel.send(message)
+                await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 3. WYLOGOWANIE – z czasem online
+    # 3. WYLOGOWANIE – czerwony tekst ANSI
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -54,13 +54,13 @@ async def process_line(bot, line: str):
                 time_online_str = f"{minutes} min {seconds} s"
                 del player_login_times[name]
 
-            message = f"🔴 Rozłączono → {name} ({guid}) → {time_online_str}"
+            message_line = f"Rozłączono → {name} ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
-                await channel.send(message)
+                await channel.send(f"```ansi\n[31m🔴 {message_line}[0m\n```")
         return
 
-    # 4. CHAT – kolor ANSI (różne kolory tekstu)
+    # 4. CHAT – różne kolory ANSI (jak wcześniej)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -84,7 +84,7 @@ async def process_line(bot, line: str):
         ansi_color_map = {
             "Global": "[32m",   # zielony
             "Admin":  "[31m",   # czerwony
-            "Team":   "[34m",   # niebieski ← ZMIENIONE NA NIEBIESKI
+            "Team":   "[34m",   # niebieski
             "Direct": "[37m",   # biały / jasnoszary
             "Unknown": "[0m"
         }

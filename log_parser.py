@@ -1,4 +1,4 @@
-# log_parser.py – WERSJA Z CZASEM ONLINE + CHAT W JEDNEJ LINII Z DIFF (poprawiony f-string)
+# log_parser.py – FINALNA WERSJA: emotka na początku, bez prefixów diff, jedna linia
 
 import re
 from datetime import datetime
@@ -18,7 +18,7 @@ async def process_line(bot, line: str):
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
-            message = f"🟢 **Login** → Gracz {name} → Dodany do kolejki logowania"
+            message = f"🟢 Login → Gracz {name} → Dodany do kolejki logowania"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(message)
@@ -33,7 +33,7 @@ async def process_line(bot, line: str):
 
             player_login_times[name] = current_time
 
-            message = f"🟢 **Połączono** → {name} (SteamID: {steamid})"
+            message = f"🟢 Połączono → {name} (SteamID: {steamid})"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(message)
@@ -54,13 +54,13 @@ async def process_line(bot, line: str):
                 time_online_str = f"{minutes} min {seconds} s"
                 del player_login_times[name]
 
-            message = f"🔴 **Rozłączono** → {name} ({guid}) → {time_online_str}"
+            message = f"🔴 Rozłączono → {name} ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(message)
         return
 
-    # 4. CHAT – JEDNA LINIA, pogrubienia + kolorowanie diff (poprawiony f-string)
+    # 4. CHAT – jedna linia zaczynająca się od emotki, bez prefixów diff
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -70,11 +70,21 @@ async def process_line(bot, line: str):
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Prefix koloru diff
+        # Emotki na samym początku
+        emoji_map = {
+            "Global": "💬 ",    # dymek
+            "Admin":  "🛡️ ",    # tarcza/admin
+            "Team":   "👥 ",    # ludziki/grupa
+            "Direct": "❗ ",    # wykrzyknik
+            "Unknown": "❓ "
+        }
+        emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
+
+        # Prefix koloru diff (dla delikatnego podświetlenia, bez znaku na początku)
         diff_prefix_map = {
             "Global": "+ ",     # zielony
             "Admin":  "- ",     # czerwony
-            "Team":   "! ",     # pomarańczowy/żółty
+            "Team":   "! ",     # żółty/pomarańczowy
             "Direct": "  ",     # neutralny
             "Unknown": "  "
         }
@@ -85,10 +95,10 @@ async def process_line(bot, line: str):
         channel = client.get_channel(discord_channel_id)
 
         if channel:
-            # Jedna linia z pogrubieniami
-            message_line = f"**{chat_type}** | **{chat_time}** | **{player}**: {message_text}"
+            # Jedna linia: emotka + nazwa | godzina | nick: wiadomość
+            message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
 
-            # Poprawiony f-string – teraz zamknięty poprawnie
+            # Wysyłamy w bloku diff (kolorowanie zostaje, ale bez znaku na początku linii)
             await channel.send(f"```diff\n{diff_prefix}{message_line}\n```")
 
         return
@@ -100,7 +110,7 @@ async def process_line(bot, line: str):
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # 6. DEBUG – wyłącz po testach (ustaw debug: None w config)
+    # 6. DEBUG – wyłącz po testach
     if CHANNEL_IDS.get("debug"):
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:

@@ -1,4 +1,4 @@
-# log_parser.py – BEZ ŻADNYCH GWIAZDEK, KOLOR ANSI
+# log_parser.py – ANSI + POGRUBIENIA TYLKO W WYBRANYCH MIEJSCACH (bez gwiazdek w treści)
 
 import re
 from datetime import datetime
@@ -12,7 +12,7 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # 1. KOLEJKOWANIE – zielony
+    # 1. KOLEJKOWANIE – zielony (bez pogrubienia)
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
@@ -23,20 +23,20 @@ async def process_line(bot, line: str):
                 await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 2. FINALNE POŁĄCZENIE – zielony, bez gwiazdek
+    # 2. FINALNE POŁĄCZENIE – zielony, pogrubione tylko "Połączono → nick"
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
             player_login_times[name] = current_time
-            message_line = f"Połączono → {name} (SteamID: {steamid})"
+            message_line = f"**Połączono** → **{name}** (SteamID: {steamid})"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 3. WYLOGOWANIE – czerwony, bez gwiazdek
+    # 3. WYLOGOWANIE – czerwony, pogrubione tylko "Rozłączono → nick"
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -49,13 +49,13 @@ async def process_line(bot, line: str):
                 seconds = int(delta.total_seconds() % 60)
                 time_online_str = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            message_line = f"Rozłączono → {name} ({guid}) → {time_online_str}"
+            message_line = f"**Rozłączono** → **{name}** ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[31m🔴 {message_line}[0m\n```")
         return
 
-    # 4. CHAT – bez gwiazdek, tylko emotka + nazwa | godzina | nick: treść
+    # 4. CHAT – pogrubione: nazwa chatu | godzina | nick : treść (treść niepogrubiona)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)
         player = match.group(2)
@@ -86,13 +86,13 @@ async def process_line(bot, line: str):
         channel = client.get_channel(discord_channel_id)
 
         if channel:
-            # Bez gwiazdek: emotka + nazwa | godzina | nick: treść
-            message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
-            await channel.send(f"```ansi\n{color_code}{message_line}[0m\n```")
+            # Pogrubione tylko nazwa chatu, godzina i nick
+            message_line = f"**{chat_type}** | **{chat_time}** | **{player}**: {message_text}"
+            await channel.send(f"```ansi\n{color_code}{emoji}{message_line}[0m\n```")
 
         return
 
-    # 5. COT – biały ANSI, format: ADMIN | STEAMID | treść (bez gwiazdek)
+    # 5. COT – biały ANSI, format: **ADMIN** | **STEAMID** | treść (bez pogrubienia treści)
     if "[COT]" in line:
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
@@ -102,7 +102,7 @@ async def process_line(bot, line: str):
 
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
-            message_line = f"ADMIN | {steamid} | {action_text}"
+            message_line = f"**ADMIN** | **{steamid}** | {action_text}"
             await channel.send(f"```ansi\n[37m{message_line}[0m\n```")
 
         return

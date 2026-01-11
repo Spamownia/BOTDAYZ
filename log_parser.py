@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA Z KOLOROWYMI EMBEDAMI (Team = żółty)
+# log_parser.py – WERSJA Z MINIMALISTYCZNYMI EMBEDAMI JAK NA SCREENIE
 
 import re
 from datetime import datetime
@@ -13,7 +13,7 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # 1. KOLEJKOWANIE
+    # 1. KOLEJKOWANIE (bez zmian)
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
@@ -24,7 +24,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 2. FINALNE POŁĄCZENIE
+    # 2. FINALNE POŁĄCZENIE (bez zmian)
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
@@ -39,7 +39,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 3. WYLOGOWANIE – z czasem online
+    # 3. WYLOGOWANIE (bez zmian)
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -60,24 +60,23 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – kolorowe embedy
+    # 4. CHAT – MINIMALISTYCZNE EMBEDY JAK NA SCREENIE
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
-        chat_type = match.group(1)         # Global, Admin, Team, Direct...
+        chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
         message_text = match.group(3)
 
-        # Godzina z logu lub aktualna
+        # Godzina z logu lub aktualna (mała i szara na dole)
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Kolory dla każdego typu chatu (Team zmieniony na żółty!)
+        # Kolory paska embeda
         color_map = {
-            "Global": 0x00FF00,    # zielony
-            "Admin":  0xFF0000,    # czerwony
-            "Team":   0xFFFF00,    # żółty ← ZMIENIONE
-            "Direct": 0xFFFFFF,    # biały / jasnoszary
-            # Domyślny kolor
-            "Unknown": 0xAAAAAA
+            "Global": 0x2ECC71,    # jasny zielony
+            "Admin":  0xE74C3C,    # czerwony
+            "Team":   0xF1C40F,    # żółty
+            "Direct": 0xECF0F1,    # bardzo jasny szary/biały
+            "Unknown": 0x95A5A6
         }
         embed_color = color_map.get(chat_type, color_map["Unknown"])
 
@@ -87,24 +86,25 @@ async def process_line(bot, line: str):
 
         if channel:
             embed = Embed(
-                description=f"**{chat_time}** {player}: {message_text}",
-                color=embed_color,
-                timestamp=current_time
+                description=f"{player}: {message_text}",
+                color=embed_color
             )
-            embed.set_author(name=chat_type)
-            embed.set_footer(text="DayZ Server Log")
+            embed.set_author(name=chat_type, icon_url=None)  # nazwa chatu na górze
+            embed.timestamp = current_time
+            embed.set_footer(text=chat_time)  # godzina mała i szara na dole
+
             await channel.send(embed=embed)
 
         return
 
-    # 5. COT – akcje admina
+    # 5. COT – bez zmian
     if "[COT]" in line:
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # 6. DEBUG (wyłącz po testach – ustaw debug: None w config)
+    # 6. DEBUG – bez zmian
     if CHANNEL_IDS.get("debug"):
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:

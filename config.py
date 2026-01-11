@@ -18,7 +18,7 @@ FTP_LOG_DIR = os.getenv("FTP_LOG_DIR", "/config/")
 if not all([FTP_HOST, FTP_USER, FTP_PASS]):
     raise ValueError("Brak wymaganych danych FTP!")
 
-# Kanały Discord – zmień ID na swoje rzeczywiste
+# Kanały Discord – ZMIEŃ ID NA SWOJE RZECZYWISTE!
 CHANNEL_IDS = {
     "connections": 1458909797121527849,  # połączenia / rozłączenia
     "kills": 1458909797121527849,
@@ -34,10 +34,7 @@ CHAT_CHANNEL_MAPPING = {
     "Admin":  1458909797121527849,    # Chat admina / COT / komendy
     "Team":   1458909548935905401,    # Grupowy / team chat
     "Direct": 1458909548935905401,    # Szept / direct
-    # Dodaj kolejne jeśli masz np.:
-    # "Group": 123456789012345678,
-    # "Vehicle": 987654321098765432,
-    # Domyślny kanał gdy typ nieznany
+    # Dodaj kolejne jeśli pojawią się nowe typy chatu
     "Unknown": 1458909548935905401
 }
 

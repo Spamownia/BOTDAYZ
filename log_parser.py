@@ -96,13 +96,13 @@ async def process_line(bot, line: str):
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
 
-        # Godzina tylko jedna – z głównego logu
+        # Godzina tylko jedna – z głównego logu (pierwsza w linii)
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         cot_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Treść akcji – wszystko po pierwszym :
+        # Treść akcji – wszystko po pierwszym :, usuwamy duplikaty godziny i guid
         action_text = line.split(":", 1)[1].strip() if ":" in line else line.strip()
-        # Usuwamy ewentualny duplikat godziny lub guid z treści
+        # Usuń dowolne fragmenty typu HH:MM:SS lub [guid=...]
         action_text = re.sub(r'\d{2}:\d{2}:\d{2}', '', action_text).strip()
         action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()
 

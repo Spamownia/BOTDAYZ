@@ -1,4 +1,4 @@
-# log_parser.py – WERSJA Z MINIMALISTYCZNYMI EMBEDAMI JAK NA SCREENIE
+# log_parser.py – MINIMALISTYCZNE EMBEDY JAK NA SCREENIE (autor + footer godzina)
 
 import re
 from datetime import datetime
@@ -60,23 +60,23 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – MINIMALISTYCZNE EMBEDY JAK NA SCREENIE
+    # 4. CHAT – MINIMALISTYCZNE EMBEDY (identycznie jak na screenie)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
         message_text = match.group(3)
 
-        # Godzina z logu lub aktualna (mała i szara na dole)
+        # Godzina z logu lub aktualna (mała i szara w footer)
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Kolory paska embeda
+        # Kolory paska embeda (dopasowane do screena)
         color_map = {
-            "Global": 0x2ECC71,    # jasny zielony
-            "Admin":  0xE74C3C,    # czerwony
-            "Team":   0xF1C40F,    # żółty
-            "Direct": 0xECF0F1,    # bardzo jasny szary/biały
-            "Unknown": 0x95A5A6
+            "Global": 0x00FF00,    # zielony
+            "Admin":  0xFF0000,    # czerwony
+            "Team":   0xFFFF00,    # żółty
+            "Direct": 0xFFFFFF,    # biały / jasnoszary
+            "Unknown": 0xAAAAAA
         }
         embed_color = color_map.get(chat_type, color_map["Unknown"])
 
@@ -89,22 +89,21 @@ async def process_line(bot, line: str):
                 description=f"{player}: {message_text}",
                 color=embed_color
             )
-            embed.set_author(name=chat_type, icon_url=None)  # nazwa chatu na górze
-            embed.timestamp = current_time
+            embed.set_author(name=chat_type)  # nazwa typu chatu na górze (mały szary)
             embed.set_footer(text=chat_time)  # godzina mała i szara na dole
 
             await channel.send(embed=embed)
 
         return
 
-    # 5. COT – bez zmian
+    # 5. COT – akcje admina
     if "[COT]" in line:
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # 6. DEBUG – bez zmian
+    # 6. DEBUG (opcjonalny)
     if CHANNEL_IDS.get("debug"):
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:

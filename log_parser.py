@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: emotka na początku, Team ŻÓŁTY (yaml blok)
+# log_parser.py – KOLOROWY TEKST ANSI (bez embedów, bez prefixów)
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – zaczyna się od emotki, bez widocznych prefixów, Team żółty (yaml blok)
+    # 4. CHAT – kolor ANSI (różne kolory tekstu)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -72,23 +72,23 @@ async def process_line(bot, line: str):
 
         # Emotki na samym początku
         emoji_map = {
-            "Global": "💬 ",    # dymek
-            "Admin":  "🛡️ ",    # tarcza/admin
-            "Team":   "👥 ",    # ludziki/grupa
-            "Direct": "❗ ",    # wykrzyknik
+            "Global": "💬 ",
+            "Admin":  "🛡️ ",
+            "Team":   "👥 ",
+            "Direct": "❗ ",
             "Unknown": "❓ "
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
-        # Mapa bloków kodu dla koloru (Team teraz yaml dla żółtego)
-        code_block_map = {
-            "Global": "diff\n+ ",     # zielony
-            "Admin":  "diff\n- ",     # czerwony
-            "Team":   "yaml\n",       # żółty (yaml daje żółtawy tekst w wielu motywach)
-            "Direct": "ansi\n[0m",   # neutralny/biały
-            "Unknown": "ansi\n[0m"
+        # Kolory ANSI – tekst kolorowy (bez paska po lewej)
+        ansi_color_map = {
+            "Global": "[32m",   # zielony
+            "Admin":  "[31m",   # czerwony
+            "Team":   "[33m",   # żółty
+            "Direct": "[37m",   # biały / jasnoszary
+            "Unknown": "[0m"    # reset
         }
-        code_block = code_block_map.get(chat_type, code_block_map["Unknown"])
+        color_code = ansi_color_map.get(chat_type, ansi_color_map["Unknown"])
 
         # Wybór kanału Discord
         discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
@@ -98,8 +98,8 @@ async def process_line(bot, line: str):
             # Jedna linia: emotka + nazwa chatu | godzina | nick: wiadomość
             message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
 
-            # Wysyłamy w bloku z odpowiednim kolorem
-            await channel.send(f"```{code_block}{message_line}\n```")
+            # Wysyłamy w bloku ansi z kolorem tekstu
+            await channel.send(f"```ansi\n{color_code}{message_line}[0m\n```")
 
         return
 

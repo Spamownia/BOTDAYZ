@@ -33,7 +33,7 @@ CHAT_CHANNEL_MAPPING = {
     "Global": 1459919525037478039,    # Główny chat globalny
     "Admin":  1459919995919143024,    # Chat admina / COT / komendy
     "Team":   1459919995919143024,    # Grupowy / team chat
-    "Direct": 1459919995919143024,    # Szept / direct
+    "Direct": 1460000218232652071,    # Szept / direct
     "Unknown": 1458909548935905401
 }
 

@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA Z CZASEM ONLINE I KOLOROWYMI CHATAMI
+# log_parser.py – WERSJA Z KOLOROWYMI WIADOMOŚCIAMI TEKSTOWYMI (bez embedów)
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – KOLOROWE EMBEDY DLA KAŻDEGO TYPU
+    # 4. CHAT – czysty tekst z kolorem (w blokach kodu)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)         # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -68,32 +68,25 @@ async def process_line(bot, line: str):
 
         # Godzina z logu lub aktualna
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
-        chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M")
+        chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Kolory dla każdego typu chatu
+        # Kolory w formacie Discord (tylko w blokach kodu)
         color_map = {
-            "Global": 0x00FF00,    # zielony
-            "Admin":  0xFF0000,    # czerwony
-            "Team":   0x00AAFF,    # niebieski
-            "Direct": 0xFFFFFF,    # biały / jasnoszary
-            # Domyślny kolor
-            "Unknown": 0xAAAAAA
+            "Global": "diff\n+ ",          # zielony (+)
+            "Admin":  "diff\n- ",          # czerwony (-)
+            "Team":   "css\n",             # niebieski (css)
+            "Direct": "ansi\n[0m",        # biały / domyślny
+            "Unknown": "ansi\n[0m"
         }
-        embed_color = color_map.get(chat_type, color_map["Unknown"])
+        color_prefix = color_map.get(chat_type, color_map["Unknown"])
 
         # Wybór kanału Discord
         discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
         channel = client.get_channel(discord_channel_id)
 
         if channel:
-            embed = Embed(
-                description=f"**{chat_time}** {player}: {message_text}",
-                color=embed_color,
-                timestamp=current_time
-            )
-            embed.set_author(name=chat_type)
-            embed.set_footer(text="DayZ Server Log")
-            await channel.send(embed=embed)
+            message = f"{chat_type} | {chat_time} | {player}: {message_text}"
+            await channel.send(f"```{color_prefix}{message}```")
 
         return
 

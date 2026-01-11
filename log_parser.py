@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: emotka na początku, bez prefixów diff, jedna linia
+# log_parser.py – FINALNA WERSJA: emotka na początku, bez prefixów, Team żółty
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – jedna linia zaczynająca się od emotki, bez prefixów diff
+    # 4. CHAT – zaczyna się od emotki, bez żadnych prefixów (+/-), Team żółty
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -70,7 +70,7 @@ async def process_line(bot, line: str):
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Emotki na samym początku
+        # Emotki na samym początku (widoczne od razu)
         emoji_map = {
             "Global": "💬 ",    # dymek
             "Admin":  "🛡️ ",    # tarcza/admin
@@ -80,26 +80,26 @@ async def process_line(bot, line: str):
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
-        # Prefix koloru diff (dla delikatnego podświetlenia, bez znaku na początku)
-        diff_prefix_map = {
+        # Kolorowanie diff – Team teraz ! dla żółtego (znacznik niewidoczny)
+        color_map = {
             "Global": "+ ",     # zielony
             "Admin":  "- ",     # czerwony
-            "Team":   "! ",     # żółty/pomarańczowy
+            "Team":   "! ",     # żółty/pomarańczowy ← TU ŻÓŁTY
             "Direct": "  ",     # neutralny
             "Unknown": "  "
         }
-        diff_prefix = diff_prefix_map.get(chat_type, diff_prefix_map["Unknown"])
+        color_prefix = color_map.get(chat_type, color_map["Unknown"])
 
         # Wybór kanału Discord
         discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
         channel = client.get_channel(discord_channel_id)
 
         if channel:
-            # Jedna linia: emotka + nazwa | godzina | nick: wiadomość
+            # Jedna linia: emotka + nazwa chatu | godzina | nick: wiadomość
             message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
 
-            # Wysyłamy w bloku diff (kolorowanie zostaje, ale bez znaku na początku linii)
-            await channel.send(f"```diff\n{diff_prefix}{message_line}\n```")
+            # Wysyłamy w bloku diff (znacznik koloru niewidoczny)
+            await channel.send(f"```diff\n{color_prefix}{message_line}\n```")
 
         return
 

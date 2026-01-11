@@ -1,9 +1,9 @@
-# log_parser.py – FINALNA WERSJA Z CZASEM ONLINE (po nazwie gracza)
+# log_parser.py – FINALNA WERSJA Z CZASEM ONLINE I CZYSTYM CHATEM
 
 import re
 from datetime import datetime
 from discord import Embed
-from config import CHANNEL_IDS
+from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
 # Słownik: nazwa gracza → czas pełnego zalogowania
 player_login_times = {}
@@ -13,27 +13,24 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # 1. KOLEJKOWANIE – dodanie do kolejki
+    # 1. KOLEJKOWANIE
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
-            dpnid = match.group(2)
             message = f"🟢 **Login** → Gracz {name} → Dodany do kolejki logowania"
-
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(message)
         return
 
-    # 2. FINALNE POŁĄCZENIE – zapisujemy czas po NAZWIE GRACZA
+    # 2. FINALNE POŁĄCZENIE
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
 
-            # Zapisujemy czas logowania po nazwie gracza
             player_login_times[name] = current_time
 
             message = f"🟢 **Połączono** → {name} (SteamID: {steamid})"
@@ -42,7 +39,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 3. WYLOGOWANIE – obliczamy czas po NAZWIE GRACZA
+    # 3. WYLOGOWANIE – z czasem online
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -55,7 +52,7 @@ async def process_line(bot, line: str):
                 minutes = int(delta.total_seconds() // 60)
                 seconds = int(delta.total_seconds() % 60)
                 time_online_str = f"{minutes} min {seconds} s"
-                del player_login_times[name]  # czyścimy po wyjściu
+                del player_login_times[name]
 
             message = f"🔴 **Rozłączono** → {name} ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
@@ -63,20 +60,24 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT Z .ADM
+    # 4. CHAT – czysty tekst, osobny kanał dla każdego typu
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
-        channel_type, player, msg = match.groups()
-        channel = client.get_channel(CHANNEL_IDS["chat"])
+        chat_type = match.group(1)         # Global, Admin, Team, Direct...
+        player = match.group(2)
+        message_text = match.group(3)
+
+        # Godzina z logu lub aktualna
+        time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
+        chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M")
+
+        # Wybór kanału Discord
+        discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
+        channel = client.get_channel(discord_channel_id)
+
         if channel:
-            embed = Embed(
-                title=f"💬 Chat [{channel_type}]",
-                color=0x00FFFF,
-                timestamp=datetime.utcnow()
-            )
-            embed.add_field(name="Gracz", value=player, inline=True)
-            embed.add_field(name="Wiadomość", value=msg, inline=False)
-            embed.set_footer(text="DayZ Server Log")
-            await channel.send(embed=embed)
+            message = f"{chat_type} | {chat_time} | {player}: {message_text}"
+            await channel.send(message)
+
         return
 
     # 5. COT – akcje admina
@@ -86,8 +87,8 @@ async def process_line(bot, line: str):
             await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
         return
 
-    # 6. DEBUG (wyłącz po testach – ustaw debug: None w config)
-    if CHANNEL_IDS["debug"]:
+    # 6. DEBUG (wyłącz po testach – ustaw debug: None)
+    if CHANNEL_IDS.get("debug"):
         debug_channel = client.get_channel(CHANNEL_IDS["debug"])
         if debug_channel:
             content = line[:1897] + "..." if len(line) > 1900 else line

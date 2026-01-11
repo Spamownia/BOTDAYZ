@@ -1,4 +1,4 @@
-# log_parser.py – WSZYSTKIE CHATY W BLOKU yaml (żółtawy kolor)
+# log_parser.py – RÓŻNE KOLORY DLA KAŻDEGO CHATU (najlepsze dostępne w Discord)
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – wszystkie w bloku yaml (żółtawy kolor), zaczyna się od emotki
+    # 4. CHAT – różne kolory dla każdego typu (różne bloki kodu)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -72,13 +72,23 @@ async def process_line(bot, line: str):
 
         # Emotki na samym początku
         emoji_map = {
-            "Global": "💬 ",    # dymek
-            "Admin":  "🛡️ ",    # tarcza/admin
-            "Team":   "👥 ",    # ludziki/grupa
-            "Direct": "❗ ",    # wykrzyknik
+            "Global": "💬 ",
+            "Admin":  "🛡️ ",
+            "Team":   "👥 ",
+            "Direct": "❗ ",
             "Unknown": "❓ "
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
+
+        # RÓŻNE BLOKI DLA RÓŻNYCH KOLORÓW (bez widocznych prefixów)
+        color_block_map = {
+            "Global": "yaml\n",          # żółto-zielonkawy (najbliższy zielonemu)
+            "Admin":  "diff\n- ",        # czerwony
+            "Team":   "yaml\n",          # żółty (yaml daje czysty żółty)
+            "Direct": "ansi\n[37m",     # biały / jasnoszary (ansi biały)
+            "Unknown": "ansi\n[0m"
+        }
+        color_block = color_block_map.get(chat_type, color_block_map["Unknown"])
 
         # Wybór kanału Discord
         discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
@@ -88,8 +98,8 @@ async def process_line(bot, line: str):
             # Jedna linia: emotka + nazwa chatu | godzina | nick: wiadomość
             message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
 
-            # Wszystkie chaty w bloku yaml (żółtawy kolor tekstu)
-            await channel.send(f"```yaml\n{message_line}\n```")
+            # Wysyłamy w bloku z odpowiednim kolorem
+            await channel.send(f"```{color_block}{message_line}\n```")
 
         return
 

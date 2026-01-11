@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: emotka na początku, bez prefixów, Team żółty
+# log_parser.py – FINALNA WERSJA: emotka na początku, Team ŻÓŁTY, bez prefixów
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – zaczyna się od emotki, bez żadnych prefixów (+/-), Team żółty
+    # 4. CHAT – zaczyna się od emotki, bez widocznych prefixów, Team żółty
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -80,11 +80,11 @@ async def process_line(bot, line: str):
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
-        # Kolorowanie diff – Team teraz ! dla żółtego (znacznik niewidoczny)
+        # Mapa kolorów diff – Team teraz ! dla żółtego (znacznik niewidoczny)
         color_map = {
             "Global": "+ ",     # zielony
             "Admin":  "- ",     # czerwony
-            "Team":   "! ",     # żółty/pomarańczowy ← TU ŻÓŁTY
+            "Team":   "! ",     # żółty/pomarańczowy ← ZMIENIONE NA ŻÓŁTY
             "Direct": "  ",     # neutralny
             "Unknown": "  "
         }

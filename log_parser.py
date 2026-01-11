@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: ANSI KOLORY, BEZ GWIAZDEK, COT W ŻĄDANYM FORMACIE
+# log_parser.py – FINALNA WERSJA: ANSI KOLORY, BEZ DUPLIKATÓW GODZINY W COT
 
 import re
 from datetime import datetime
@@ -91,18 +91,20 @@ async def process_line(bot, line: str):
 
         return
 
-    # 5. COT – biały ANSI, format: ADMIN | [COT] STEAMID | GODZINA | TREŚĆ
+    # 5. COT – biały ANSI, format: ADMIN | [COT] STEAMID | GODZINA | TREŚĆ (tylko jedna godzina)
     if "[COT]" in line:
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
 
-        # Godzina z logu (najbardziej wiarygodna)
+        # Godzina tylko jedna – z głównego logu
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         cot_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Treść akcji – wszystko po :
+        # Treść akcji – wszystko po pierwszym :
         action_text = line.split(":", 1)[1].strip() if ":" in line else line.strip()
-        action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()  # usuń guid jeśli jest
+        # Usuwamy ewentualny duplikat godziny lub guid z treści
+        action_text = re.sub(r'\d{2}:\d{2}:\d{2}', '', action_text).strip()
+        action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()
 
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:

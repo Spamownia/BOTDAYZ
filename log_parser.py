@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: emotka na początku, Team ŻÓŁTY (yaml blok)
+# log_parser.py – WSZYSTKIE CHATY W BLOKU yaml (żółtawy kolor)
 
 import re
 from datetime import datetime
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – zaczyna się od emotki, bez widocznych prefixów, Team żółty (yaml blok)
+    # 4. CHAT – wszystkie w bloku yaml (żółtawy kolor), zaczyna się od emotki
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
@@ -80,16 +80,6 @@ async def process_line(bot, line: str):
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
-        # Mapa bloków kodu dla koloru (Team teraz yaml dla żółtego)
-        code_block_map = {
-            "Global": "diff\n+ ",     # zielony
-            "Admin":  "diff\n- ",     # czerwony
-            "Team":   "yaml\n",       # żółty (yaml daje żółtawy tekst w wielu motywach)
-            "Direct": "ansi\n[0m",   # neutralny/biały
-            "Unknown": "ansi\n[0m"
-        }
-        code_block = code_block_map.get(chat_type, code_block_map["Unknown"])
-
         # Wybór kanału Discord
         discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
         channel = client.get_channel(discord_channel_id)
@@ -98,8 +88,8 @@ async def process_line(bot, line: str):
             # Jedna linia: emotka + nazwa chatu | godzina | nick: wiadomość
             message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
 
-            # Wysyłamy w bloku z odpowiednim kolorem
-            await channel.send(f"```{code_block}{message_line}\n```")
+            # Wszystkie chaty w bloku yaml (żółtawy kolor tekstu)
+            await channel.send(f"```yaml\n{message_line}\n```")
 
         return
 

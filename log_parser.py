@@ -1,4 +1,4 @@
-# log_parser.py – WERSJA Z CZASEM ONLINE + CHAT W JEDNEJ LINII Z DIFF
+# log_parser.py – WERSJA Z CZASEM ONLINE + CHAT W JEDNEJ LINII Z DIFF (poprawiony f-string)
 
 import re
 from datetime import datetime
@@ -15,7 +15,7 @@ async def process_line(bot, line: str):
 
     # 1. KOLEJKOWANIE
     if "[Login]: Adding player" in line:
-        match = re.search(r'Adding player (\w+) $$   (\d+)   $$', line)
+        match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
             message = f"🟢 **Login** → Gracz {name} → Dodany do kolejki logowania"
@@ -26,7 +26,7 @@ async def process_line(bot, line: str):
 
     # 2. FINALNE POŁĄCZENIE
     if 'Player "' in line and "is connected" in line:
-        match = re.search(r'Player "([^"]+)"$$   steamID=(\d+)   $$ is connected', line)
+        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
@@ -41,7 +41,7 @@ async def process_line(bot, line: str):
 
     # 3. WYLOGOWANIE – z czasem online
     if "has been disconnected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"$$   id=([^)]+)   $$ has been disconnected', line)
+        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1)
             guid = match.group(2)
@@ -60,8 +60,8 @@ async def process_line(bot, line: str):
                 await channel.send(message)
         return
 
-    # 4. CHAT – JEDNA LINIA, pogrubienia + kolorowanie diff (bez embedów)
-    if match := re.search(r'$$   Chat - ([^   $$]+)\]$$   "([^"]+)"\(id=[^)]+   $$\): (.+)', line):
+    # 4. CHAT – JEDNA LINIA, pogrubienia + kolorowanie diff (poprawiony f-string)
+    if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)          # Global, Admin, Team, Direct...
         player = match.group(2)
         message_text = match.group(3)
@@ -88,8 +88,8 @@ async def process_line(bot, line: str):
             # Jedna linia z pogrubieniami
             message_line = f"**{chat_type}** | **{chat_time}** | **{player}**: {message_text}"
 
-            # Wysyłamy w bloku diff – poprawny f-string
-            await channel.send(f"```diff
+            # Poprawiony f-string – teraz zamknięty poprawnie
+            await channel.send(f"```diff\n{diff_prefix}{message_line}\n```")
 
         return
 

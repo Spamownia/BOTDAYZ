@@ -1,42 +1,118 @@
-import os
-from dotenv import load_dotenv
+# log_parser.py – FINALNA WERSJA: emotka na początku, Global ŻÓŁTY, Team ZIELONY
 
-load_dotenv()
+import re
+from datetime import datetime
+from discord import Embed
+from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
-# Discord Token
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-if not DISCORD_TOKEN:
-    raise ValueError("Brak DISCORD_TOKEN w zmiennych środowiskowych!")
+# Słownik: nazwa gracza → czas pełnego zalogowania
+player_login_times = {}
 
-# FTP dane
-FTP_HOST = os.getenv("FTP_HOST")
-FTP_PORT = int(os.getenv("FTP_PORT", "21"))
-FTP_USER = os.getenv("FTP_USER")
-FTP_PASS = os.getenv("FTP_PASS")
-FTP_LOG_DIR = os.getenv("FTP_LOG_DIR", "/config/")
+async def process_line(bot, line: str):
+    client = bot
+    line = line.strip()
+    current_time = datetime.utcnow()
 
-if not all([FTP_HOST, FTP_USER, FTP_PASS]):
-    raise ValueError("Brak wymaganych danych FTP!")
+    # 1. KOLEJKOWANIE
+    if "[Login]: Adding player" in line:
+        match = re.search(r'Adding player (\w+) \((\d+)\)', line)
+        if match:
+            name = match.group(1)
+            message = f"🟢 Login → Gracz {name} → Dodany do kolejki logowania"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
+        return
 
-# Kanały Discord – ZMIEŃ ID NA SWOJE RZECZYWISTE!
-CHANNEL_IDS = {
-    "connections": 1458909797121527849,  # połączenia / rozłączenia
-    "kills": 1458909797121527849,
-    "deaths": 1458909797121527849,
-    "admin": 1458909797121527849,
-    "chat": 1458909548935905401,         # domyślny dla chatu (jeśli nie ma mapowania)
-    "debug": None         # kanał testowy – po testach ustaw na None
-}
+    # 2. FINALNE POŁĄCZENIE
+    if 'Player "' in line and "is connected" in line:
+        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
+        if match:
+            name = match.group(1)
+            steamid = match.group(2)
 
-# Mapowanie typów chatu DayZ → konkretne kanały Discord
-CHAT_CHANNEL_MAPPING = {
-    "Global": 1459919525037478039,    # Główny chat globalny
-    "Admin":  1459919995919143024,    # Chat admina / COT / komendy
-    "Team":   1459919995919143024,    # Grupowy / team chat
-    "Direct": 1459919995919143024,    # Szept / direct
-    # Dodaj kolejne jeśli pojawią się nowe typy chatu
-    "Unknown": 1458909548935905401
-}
+            player_login_times[name] = current_time
 
-# Ustawienia
-CHECK_INTERVAL = 30  # sekundy
+            message = f"🟢 Połączono → {name} (SteamID: {steamid})"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
+        return
+
+    # 3. WYLOGOWANIE – z czasem online
+    if "has been disconnected" in line and 'Player "' in line:
+        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
+        if match:
+            name = match.group(1)
+            guid = match.group(2)
+
+            time_online_str = "czas nieznany"
+            if name in player_login_times:
+                delta = current_time - player_login_times[name]
+                minutes = int(delta.total_seconds() // 60)
+                seconds = int(delta.total_seconds() % 60)
+                time_online_str = f"{minutes} min {seconds} s"
+                del player_login_times[name]
+
+            message = f"🔴 Rozłączono → {name} ({guid}) → {time_online_str}"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(message)
+        return
+
+    # 4. CHAT – zaczyna się od emotki, bez widocznych prefixów, Global ŻÓŁTY, Team ZIELONY
+    if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
+        chat_type = match.group(1)          # Global, Admin, Team, Direct...
+        player = match.group(2)
+        message_text = match.group(3)
+
+        # Godzina z logu lub aktualna
+        time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
+        chat_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
+
+        # Emotki na samym początku
+        emoji_map = {
+            "Global": "💬 ",    # dymek
+            "Admin":  "🛡️ ",    # tarcza/admin
+            "Team":   "👥 ",    # ludziki/grupa
+            "Direct": "❗ ",    # wykrzyknik
+            "Unknown": "❓ "
+        }
+        emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
+
+        # Mapa kolorów diff – ZAMIANA: Global żółty (!), Team zielony (+)
+        color_map = {
+            "Global": "! ",     # żółty/pomarańczowy ← ZAMIANA NA ŻÓŁTY
+            "Admin":  "- ",     # czerwony
+            "Team":   "+ ",     # zielony ← ZAMIANA NA ZIELONY
+            "Direct": "  ",     # neutralny
+            "Unknown": "  "
+        }
+        color_prefix = color_map.get(chat_type, color_map["Unknown"])
+
+        # Wybór kanału Discord
+        discord_channel_id = CHAT_CHANNEL_MAPPING.get(chat_type, CHAT_CHANNEL_MAPPING["Unknown"])
+        channel = client.get_channel(discord_channel_id)
+
+        if channel:
+            # Jedna linia: emotka + nazwa chatu | godzina | nick: wiadomość
+            message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
+
+            # Wysyłamy w bloku diff (znacznik koloru niewidoczny)
+            await channel.send(f"```diff\n{color_prefix}{message_line}\n```")
+
+        return
+
+    # 5. COT – akcje admina
+    if "[COT]" in line:
+        channel = client.get_channel(CHANNEL_IDS["admin"])
+        if channel:
+            await channel.send(f"🛡️ **COT Akcja**\n`{line}`")
+        return
+
+    # 6. DEBUG – wyłącz po testach
+    if CHANNEL_IDS.get("debug"):
+        debug_channel = client.get_channel(CHANNEL_IDS["debug"])
+        if debug_channel:
+            content = line[:1897] + "..." if len(line) > 1900 else line
+            await debug_channel.send(f"```log\n{content}\n```")

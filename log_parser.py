@@ -1,4 +1,4 @@
-# log_parser.py – ANSI + BEZ ŻADNYCH GWIAZDEK, COT W ŻĄDANYM FORMACIE
+# log_parser.py – FINALNA WERSJA: ANSI KOLORY, BEZ GWIAZDEK, COT W ŻĄDANYM FORMACIE
 
 import re
 from datetime import datetime
@@ -96,13 +96,13 @@ async def process_line(bot, line: str):
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
 
-        # Godzina z linii lub aktualna
+        # Godzina z logu (najbardziej wiarygodna)
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         cot_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
         # Treść akcji – wszystko po :
         action_text = line.split(":", 1)[1].strip() if ":" in line else line.strip()
-        action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()
+        action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()  # usuń guid jeśli jest
 
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:

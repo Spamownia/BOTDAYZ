@@ -1,17 +1,42 @@
-    # 2. FINALNE POŁĄCZENIE – zielony, bez gwiazdek
+# log_parser.py – ANSI + POGRUBIENIA TYLKO W WYBRANYCH MIEJSCACH
+
+import re
+from datetime import datetime
+from discord import Embed
+from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
+
+player_login_times = {}
+
+async def process_line(bot, line: str):
+    client = bot
+    line = line.strip()
+    current_time = datetime.utcnow()
+
+    # 1. KOLEJKOWANIE – zielony
+    if "[Login]: Adding player" in line:
+        match = re.search(r'Adding player (\w+) \((\d+)\)', line)
+        if match:
+            name = match.group(1)
+            message_line = f"Login → Gracz {name} → Dodany do kolejki logowania"
+            channel = client.get_channel(CHANNEL_IDS["connections"])
+            if channel:
+                await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
+        return
+
+    # 2. FINALNE POŁĄCZENIE – zielony, pogrubione "Połączono → nick"
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
             player_login_times[name] = current_time
-            message_line = f"Połączono → {name} (SteamID: {steamid})"
+            message_line = f"**Połączono** → **{name}** (SteamID: {steamid})"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 3. WYLOGOWANIE – czerwony, bez gwiazdek
+    # 3. WYLOGOWANIE – czerwony, pogrubione "Rozłączono → nick"
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -24,13 +49,13 @@
                 seconds = int(delta.total_seconds() % 60)
                 time_online_str = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            message_line = f"Rozłączono → {name} ({guid}) → {time_online_str}"
+            message_line = f"**Rozłączono** → **{name}** ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[31m🔴 {message_line}[0m\n```")
         return
 
-    # 4. CHAT – bez żadnych gwiazdek
+    # 4. CHAT – pogrubione nazwa chatu | godzina | nick : treść (treść bez pogrubienia)
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)
         player = match.group(2)
@@ -61,12 +86,12 @@
         channel = client.get_channel(discord_channel_id)
 
         if channel:
-            message_line = f"{emoji}{chat_type} | {chat_time} | {player}: {message_text}"
-            await channel.send(f"```ansi\n{color_code}{message_line}[0m\n```")
+            message_line = f"**{chat_type}** | **{chat_time}** | **{player}**: {message_text}"
+            await channel.send(f"```ansi\n{color_code}{emoji}{message_line}[0m\n```")
 
         return
 
-    # 5. COT – biały ANSI, bez gwiazdek
+    # 5. COT – biały ANSI, format: **ADMIN** | **STEAMID** | treść (bez pogrubienia treści)
     if "[COT]" in line:
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
@@ -76,7 +101,14 @@
 
         channel = client.get_channel(CHANNEL_IDS["admin"])
         if channel:
-            message_line = f"ADMIN | {steamid} | {action_text}"
+            message_line = f"**ADMIN** | **{steamid}** | {action_text}"
             await channel.send(f"```ansi\n[37m{message_line}[0m\n```")
 
         return
+
+    # 6. DEBUG – wyłącz po testach
+    if CHANNEL_IDS.get("debug"):
+        debug_channel = client.get_channel(CHANNEL_IDS["debug"])
+        if debug_channel:
+            content = line[:1897] + "..." if len(line) > 1900 else line
+            await debug_channel.send(f"```log\n{content}\n```")

@@ -25,7 +25,7 @@ CHANNEL_IDS = {
     "deaths": 1458909797121527849,
     "admin": 1458909797121527849,
     "chat": 1459919995919143024,         # domyślny dla chatu (jeśli nie ma mapowania)
-    "debug": None                        # wyłącz debug, żeby uniknąć rate limit
+    "debug": 1458909797121527849                        # wyłącz debug, żeby uniknąć rate limit
 }
 
 # Mapowanie typów chatu DayZ → konkretne kanały Discord

@@ -31,7 +31,7 @@ CHANNEL_IDS = {
 # Mapowanie typów chatu DayZ → konkretne kanały Discord
 CHAT_CHANNEL_MAPPING = {
     "Global": 1458909548935905401,    # Główny chat globalny
-    "Admin":  1458909797121527849,    # Chat admina / COT / komendy
+    "Admin":  1458909548935905401,    # Chat admina / COT / komendy
     "Team":   1458909548935905401,    # Grupowy / team chat
     "Direct": 1458909548935905401,    # Szept / direct
     "Unknown": 1458909548935905401

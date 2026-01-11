@@ -1,4 +1,4 @@
-# log_parser.py – KOLOROWY TEKST ANSI (bez embedów, bez prefixów)
+# log_parser.py – KOLOROWY TEKST ANSI (Team teraz NIEBIESKI)
 
 import re
 from datetime import datetime
@@ -80,13 +80,13 @@ async def process_line(bot, line: str):
         }
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
-        # Kolory ANSI – tekst kolorowy (bez paska po lewej)
+        # Kolory ANSI – tekst kolorowy
         ansi_color_map = {
             "Global": "[32m",   # zielony
             "Admin":  "[31m",   # czerwony
-            "Team":   "[33m",   # żółty
+            "Team":   "[34m",   # niebieski ← ZMIENIONE NA NIEBIESKI
             "Direct": "[37m",   # biały / jasnoszary
-            "Unknown": "[0m"    # reset
+            "Unknown": "[0m"
         }
         color_code = ansi_color_map.get(chat_type, ansi_color_map["Unknown"])
 

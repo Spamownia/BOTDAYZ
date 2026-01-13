@@ -1,91 +1,114 @@
-# main.py – Discord bot do logów DayZ + Flask na porcie 10000 (dla Render Web Service)
+# main.py – OSTATECZNA WERSJA
 
 import discord
 from discord.ext import commands, tasks
-import asyncio
-import requests
-import threading
-from flask import Flask
-from config import DISCORD_TOKEN, CHECK_INTERVAL
+from config import DISCORD_TOKEN, CHECK_INTERVAL, CHANNEL_IDS
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
+import logging
+from flask import Flask
+import threading
+import os
+import asyncio
 
-intents = discord.Intents.default()
-intents.message_content = True
+# Lepsze logowanie do konsoli Rendera
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 
-client = commands.Bot(command_prefix="!", intents=intents)
-watcher = DayZLogWatcher()
+# Flask – żeby Render nie wyłączał bota
+app = Flask(__name__)
 
-# Flask – prosty serwer HTTP na porcie 10000, żeby Render wykrył port
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
+@app.route('/')
 def home():
-    return "Husaria Bot is alive!", 200
+    return """
+    <h1>🟢 Bot DayZ działa!</h1>
+    <p>Monitoruje logi serwera i wysyła powiadomienia na Discord.</p>
+    <p>Aktualny czas: live</p>
+    """
 
 def run_flask():
-    flask_app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-# Uruchom Flask w osobnym wątku (daemon)
-threading.Thread(target=run_flask, daemon=True).start()
+# Intents
+intents = discord.Intents.default()
 
-# ID serwera z BattleMetrics – ZMIEŃ NA SWOJE!
-BATTLEMERTICS_SERVER_ID = "37055320"  # przykład – wstaw swoje
-
-# Co ile sekund aktualizować status bota
-PLAYERS_UPDATE_INTERVAL = 60
-
-@tasks.loop(seconds=PLAYERS_UPDATE_INTERVAL)
-async def update_players_status():
-    try:
-        url = f"https://api.battlemetrics.com/servers/{BATTLEMERTICS_SERVER_ID}"
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            online = data["data"]["attributes"]["players"]
-            max_players = data["data"]["attributes"]["maxPlayers"]
-            status_text = f"{online}/{max_players} online"
-
-            await client.change_presence(
-                activity=discord.Game(name=status_text)
-            )
-            print(f"[STATUS] Zaktualizowano: {status_text}")
-        else:
-            await client.change_presence(activity=None)
-            print("[STATUS] Błąd pobierania z BattleMetrics")
-    except Exception as e:
-        print(f"[STATUS] Błąd: {e}")
-        await client.change_presence(activity=None)
-
-@client.event
-async def on_ready():
-    print(f"Zalogowano jako {client.user}")
-    update_players_status.start()  # start pętli aktualizacji statusu
+# Bot
+bot = commands.Bot(command_prefix="!", intents=intents)
+watcher = DayZLogWatcher()
 
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_logs():
-    print("[TASK] Sprawdzam nowe logi...")
-    try:
-        content = watcher.get_new_content()
-        if content:
-            for log_line in content.splitlines():
-                if log_line.strip():
-                    await process_line(client, log_line)
-    except Exception as e:
-        print(f"Błąd sprawdzania logów: {e}")
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
+    print(f"[TASK] Sprawdzam nowe logi (co {CHECK_INTERVAL}s)...")
+    
+    if not watcher.connect():
+        print("[TASK] ❌ Nie udało się połączyć z FTP – pomijam cykl")
         return
-    # Tu możesz dodać obsługę komend, jeśli chcesz
-    await client.process_commands(message)
+    
+    content = watcher.get_new_content()
+    
+    if not content:
+        print("[TASK] Brak nowych danych z logów")
+        return
+    
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    print(f"[TASK] Znaleziono {len(lines)} nowych linii do przetworzenia")
+    
+    # Ochrona przed ogromną ilością linii przy pierwszym uruchomieniu po długiej przerwie
+    if len(lines) > 500:
+        print(f"[TASK] ⚠️ ZA DUŻO LINII ({len(lines)}) – to stare logi. Pomijam przetwarzanie w tym cyklu.")
+        print("[TASK] Od następnego cyklu bot będzie działał normalnie (tylko nowe linie).")
+        return
+    
+    print(f"[TASK] Przetwarzam {len(lines)} linii...")
+    for line in lines:
+        try:
+            await process_line(bot, line)
+        except Exception as e:
+            print(f"[BŁĄD] Nie udało się przetworzyć linii: {line[:100]}... | Error: {e}")
 
-# Główna pętla sprawdzania logów (pozostała bez zmian)
-async def main():
-    async with client:
-        client.loop.create_task(check_logs())
-        await client.start(DISCORD_TOKEN)
+@bot.event
+async def on_ready():
+    print("════════════════════════════════════════════════")
+    print(f"Bot zalogowany jako: {bot.user} (ID: {bot.user.id})")
+    print(f"Połączony z {len(bot.guilds)} serwerami Discord")
+    print(f"Task check_logs uruchomiony co {CHECK_INTERVAL} sekund")
+    print("════════════════════════════════════════════════")
+    
+    # Start taska z opóźnieniem
+    await asyncio.sleep(3)
+    if not check_logs.is_running():
+        check_logs.start()
+        print("[TASK] check_logs успешно STARTED")
+    else:
+        print("[TASK] check_logs już działa")
 
+# Komendy administracyjne
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def status(ctx):
+    await ctx.send("✅ Bot jest online i monitoruje logi DayZ")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restartftp(ctx):
+    watcher.__init__()  # reset watcher'a i state
+    await ctx.send("🔄 Połączenie FTP i stan logów zostały zresetowane")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ftpstatus(ctx):
+    if watcher.connect():
+        await ctx.send("🟢 Połączenie FTP jest aktywne")
+    else:
+        await ctx.send("🔴 Problem z połączeniem FTP – sprawdź dane w .env")
+
+# Uruchomienie
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Flask w tle
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("Uruchamiam Flask i bota Discord...")
+    
+    try:
+        bot.run(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"Nie udało się uruchomić bota Discord: {e}")

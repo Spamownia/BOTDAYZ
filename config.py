@@ -30,12 +30,23 @@ CHANNEL_IDS = {
 
 # Mapowanie typów chatu DayZ → konkretne kanały Discord
 CHAT_CHANNEL_MAPPING = {
-    "Global": 1459919525037478039,    # Główny chat globalny
-    "Admin":  1459919995919143024,    # Chat admina / COT / komendy
-    "Team":   1459919995919143024,    # Grupowy / team chat
-    "Direct": 1459919995919143024,    # Szept / direct
+    "Global": 1459919525037478039,       # Główny chat globalny
+    "Admin":  1459919995919143024,       # Chat admina / COT / komendy
+    "Team":   1459919995919143024,       # Grupowy / team chat
+    "Direct": 1459919995919143024,       # Szept / direct
     "Unknown": 1458909548935905401
 }
 
 # Ustawienia
 CHECK_INTERVAL = 30  # sekundy
+
+# ────────────────────────────────────────────────
+# DODANE DLA STATUSU BOTA – ILOŚĆ GRACZY ONLINE
+# ────────────────────────────────────────────────
+
+# ID serwera na BattleMetrics (z URL strony serwera)
+# Przykład: https://www.battlemetrics.com/servers/dayz/37055320 → ID = 37055320
+BATTLEMERTICS_SERVER_ID = "37055320"           # ← ZMIEŃ NA SWOJE ID !!!
+
+# Co ile sekund aktualizować status bota (60–120 s zalecane)
+PLAYERS_STATUS_UPDATE_INTERVAL = 60

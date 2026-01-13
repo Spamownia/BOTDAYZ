@@ -1,12 +1,14 @@
-# main.py – główny plik bota z aktualizacją statusu graczy online
+# main.py – Discord bot do logów DayZ + Flask na porcie 10000 (dla Render Web Service)
 
 import discord
 from discord.ext import commands, tasks
 import asyncio
 import requests
+import threading
+from flask import Flask
 from config import DISCORD_TOKEN, CHECK_INTERVAL
-from log_parser import process_line
 from ftp_watcher import DayZLogWatcher
+from log_parser import process_line
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,16 +16,24 @@ intents.message_content = True
 client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
+# Flask – prosty serwer HTTP na porcie 10000, żeby Render wykrył port
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return "Husaria Bot is alive!", 200
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
+
+# Uruchom Flask w osobnym wątku (daemon)
+threading.Thread(target=run_flask, daemon=True).start()
+
 # ID serwera z BattleMetrics – ZMIEŃ NA SWOJE!
 BATTLEMERTICS_SERVER_ID = "37055320"  # przykład – wstaw swoje
 
 # Co ile sekund aktualizować status bota
 PLAYERS_UPDATE_INTERVAL = 60
-
-@client.event
-async def on_ready():
-    print(f"Zalogowano jako {client.user}")
-    update_players_status.start()  # start pętli aktualizacji statusu
 
 @tasks.loop(seconds=PLAYERS_UPDATE_INTERVAL)
 async def update_players_status():
@@ -48,27 +58,30 @@ async def update_players_status():
         await client.change_presence(activity=None)
 
 @client.event
+async def on_ready():
+    print(f"Zalogowano jako {client.user}")
+    update_players_status.start()  # start pętli aktualizacji statusu
+
+@tasks.loop(seconds=CHECK_INTERVAL)
+async def check_logs():
+    print("[TASK] Sprawdzam nowe logi...")
+    try:
+        content = watcher.get_new_content()
+        if content:
+            for log_line in content.splitlines():
+                if log_line.strip():
+                    await process_line(client, log_line)
+    except Exception as e:
+        print(f"Błąd sprawdzania logów: {e}")
+
+@client.event
 async def on_message(message):
     if message.author == client.user:
         return
-
     # Tu możesz dodać obsługę komend, jeśli chcesz
     await client.process_commands(message)
 
 # Główna pętla sprawdzania logów (pozostała bez zmian)
-async def check_logs():
-    while True:
-        try:
-            content = watcher.get_new_content()
-            if content:
-                for log_line in content.splitlines():
-                    if log_line.strip():
-                        await process_line(client, log_line)
-        except Exception as e:
-            print(f"Błąd sprawdzania logów: {e}")
-        await asyncio.sleep(CHECK_INTERVAL)
-
-# Uruchomienie bota
 async def main():
     async with client:
         client.loop.create_task(check_logs())

@@ -20,20 +20,20 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 # Kanały Discord – ZMIEŃ ID NA SWOJE RZECZYWISTE!
 CHANNEL_IDS = {
-    "connections": 1459206440836141302,  # połączenia / rozłączenia
+    "connections": 1458909797121527849,  # połączenia / rozłączenia
     "kills": 1458909797121527849,
     "deaths": 1458909797121527849,
-    "admin": 1249732031634739203,
-    "chat": 1458909548935905401,         # domyślny dla chatu (jeśli nie ma mapowania)
+    "admin": 1458909797121527849,
+    "chat": 1458909797121527849,         # domyślny dla chatu (jeśli nie ma mapowania)
     "debug": None                        # wyłącz debug, żeby uniknąć rate limit
 }
 
 # Mapowanie typów chatu DayZ → konkretne kanały Discord
 CHAT_CHANNEL_MAPPING = {
-    "Global": 1459919525037478039,    # Główny chat globalny
-    "Admin":  1459919995919143024,    # Chat admina / COT / komendy
-    "Team":   1459919995919143024,    # Grupowy / team chat
-    "Direct": 1459919995919143024,    # Szept / direct
+    "Global": 1458909548935905401,    # Główny chat globalny
+    "Admin":  1458909548935905401,    # Chat admina / COT / komendy
+    "Team":   1458909548935905401,    # Grupowy / team chat
+    "Direct": 1458909548935905401,    # Szept / direct
     "Unknown": 1458909548935905401
 }
 

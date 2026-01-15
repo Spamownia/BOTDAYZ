@@ -1,4 +1,4 @@
-# ftp_watcher.py – poprawiona wersja z dir() zamiast nlst() + bezpieczny state + reconnect
+# ftp_watcher.py – pamięta pozycję w każdym pliku (state.json) + bezpieczny reconnect
 
 from ftplib import FTP
 import os
@@ -61,7 +61,7 @@ class DayZLogWatcher:
 
         try:
             files = []
-            self.ftp.dir(files.append)  # <-- KLUCZOWA ZMIANA: dir() zamiast nlst()
+            self.ftp.dir(files.append)  # używa LIST zamiast NLST (omija 502)
             log_files = []
             for line in files:
                 parts = line.split()
@@ -98,9 +98,10 @@ class DayZLogWatcher:
                 delta = size - last_pos
                 print(f"[FTP] +{delta} bajtów → {filename}")
 
+                # Przy dużych zmianach pobieramy tylko ostatnie 100 KB
                 rest = last_pos
                 if delta > 100_000:
-                    print(f"[FTP] Duży plik – pobieram ostatnie 100 KB")
+                    print(f"[FTP] Duży przyrost – pobieram ostatnie 100 KB")
                     rest = max(last_pos, size - 100_000)
 
                 data = bytearray()
@@ -112,6 +113,7 @@ class DayZLogWatcher:
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
 
+                # Aktualizujemy pozycję (zawsze zapisujemy bieżący rozmiar)
                 self.tracked_files[filename] = size
                 updated = True
 

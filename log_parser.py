@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: ANSI KOLORY, BEZ GWIAZDEK, COT BEZ DUPLIKATÓW GODZINY
+# log_parser.py – FINALNA WERSJA: Z GODZINĄ W KAŻDEJ WIADOMOŚCI, BEZ GWIAZDEK
 
 import re
 from datetime import datetime
@@ -12,31 +12,35 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # 1. KOLEJKOWANIE – zielony
+    # Wyciągamy godzinę z logu (pierwsza pasująca HH:MM:SS)
+    time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
+    log_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
+
+    # 1. KOLEJKOWANIE – zielony + godzina
     if "[Login]: Adding player" in line:
         match = re.search(r'Adding player (\w+) \((\d+)\)', line)
         if match:
             name = match.group(1)
-            message_line = f"Login → Gracz {name} → Dodany do kolejki logowania"
+            message_line = f"{log_time} Login → Gracz {name} → Dodany do kolejki logowania"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 2. FINALNE POŁĄCZENIE – zielony
+    # 2. FINALNE POŁĄCZENIE – zielony + godzina
     if 'Player "' in line and "is connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if match:
             name = match.group(1)
             steamid = match.group(2)
             player_login_times[name] = current_time
-            message_line = f"Połączono → {name} (SteamID: {steamid})"
+            message_line = f"{log_time} Połączono → {name} (SteamID: {steamid})"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[32m🟢 {message_line}[0m\n```")
         return
 
-    # 3. WYLOGOWANIE – czerwony
+    # 3. WYLOGOWANIE – czerwony + godzina
     if "has been disconnected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
@@ -49,7 +53,7 @@ async def process_line(bot, line: str):
                 seconds = int(delta.total_seconds() % 60)
                 time_online_str = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            message_line = f"Rozłączono → {name} ({guid}) → {time_online_str}"
+            message_line = f"{log_time} Rozłączono → {name} ({guid}) → {time_online_str}"
             channel = client.get_channel(CHANNEL_IDS["connections"])
             if channel:
                 await channel.send(f"```ansi\n[31m🔴 {message_line}[0m\n```")
@@ -96,13 +100,13 @@ async def process_line(bot, line: str):
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
 
-        # Godzina tylko jedna – pierwsza w linii logu (najbardziej wiarygodna)
+        # Godzina tylko jedna – pierwsza w linii logu
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         cot_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
         # Treść akcji – wszystko po pierwszym :, usuwamy duplikaty godziny i guid
         action_text = line.split(":", 1)[1].strip() if ":" in line else line.strip()
-        action_text = re.sub(r'\d{2}:\d{2}:\d{2}', '', action_text).strip()  # usuń ewentualny duplikat HH:MM:SS
+        action_text = re.sub(r'\d{2}:\d{2}:\d{2}', '', action_text).strip()
         action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()
 
         channel = client.get_channel(CHANNEL_IDS["admin"])

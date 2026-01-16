@@ -26,10 +26,9 @@ def run_flask():
 threading.Thread(target=run_flask, daemon=True).start()
 
 BATTLEMERTICS_SERVER_ID = "37055320"
-
 PLAYERS_UPDATE_INTERVAL = 60
 
-processed_lines = set()           # ← ANTY-DUPLIKATY
+processed_lines = set()
 MAX_CACHE_SIZE = 8000
 
 @tasks.loop(seconds=PLAYERS_UPDATE_INTERVAL)
@@ -56,10 +55,11 @@ async def check_logs():
     try:
         content = watcher.get_new_content()
         if not content:
+            print("[TASK] Pusty content – nic do przetworzenia")
             return
 
         lines = content.splitlines()
-        print(f"[LOG] Pobrano {len(lines)} linii")
+        print(f"[TASK] Przetwarzam {len(lines)} linii")
 
         for log_line in lines:
             stripped = log_line.strip()
@@ -68,16 +68,18 @@ async def check_logs():
 
             line_hash = hash(stripped)
             if line_hash in processed_lines:
+                print(f"[TASK] Pomijam duplikat: {stripped[:60]}...")
                 continue
 
             processed_lines.add(line_hash)
             if len(processed_lines) > MAX_CACHE_SIZE:
                 processed_lines.pop()
 
+            print(f"[DEBUG PARSER] Przetwarzam linię: {stripped}")
             await process_line(client, log_line)
 
     except Exception as e:
-        print(f"Błąd sprawdzania logów: {e}")
+        print(f"[TASK] Błąd w check_logs: {e}")
 
 @client.event
 async def on_ready():

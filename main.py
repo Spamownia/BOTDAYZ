@@ -1,5 +1,3 @@
-# main.py – Discord bot do logów DayZ + Flask + status graczy
-
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -16,7 +14,6 @@ intents.message_content = True
 client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
-# Flask – prosty serwer na porcie 10000 dla Rendera
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -28,10 +25,12 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
-# ID serwera BattleMetrics – ZMIEŃ NA SWOJE
-BATTLEMERTICS_SERVER_ID = "37055320"  # ← tutaj Twoje ID
+BATTLEMERTICS_SERVER_ID = "37055320"
 
 PLAYERS_UPDATE_INTERVAL = 60
+
+processed_lines = set()           # ← ANTY-DUPLIKATY
+MAX_CACHE_SIZE = 8000
 
 @tasks.loop(seconds=PLAYERS_UPDATE_INTERVAL)
 async def update_players_status():
@@ -43,33 +42,47 @@ async def update_players_status():
             online = data["data"]["attributes"]["players"]
             max_players = data["data"]["attributes"]["maxPlayers"]
             status_text = f"{online}/{max_players} online"
-
             await client.change_presence(activity=discord.Game(name=status_text))
-            print(f"[STATUS] Zaktualizowano: {status_text}")
+            print(f"[STATUS] {status_text}")
         else:
             await client.change_presence(activity=None)
-            print("[STATUS] Błąd BattleMetrics")
     except Exception as e:
         print(f"[STATUS] Błąd: {e}")
         await client.change_presence(activity=None)
 
 @tasks.loop(seconds=CHECK_INTERVAL)
 async def check_logs():
-    print("[TASK] Sprawdzam nowe logi...")
+    print("[TASK] Sprawdzam logi...")
     try:
         content = watcher.get_new_content()
-        if content:
-            print(f"[LOG] Pobrano {len(content.splitlines())} linii")
-            for log_line in content.splitlines():
-                if log_line.strip():
-                    await process_line(client, log_line)
+        if not content:
+            return
+
+        lines = content.splitlines()
+        print(f"[LOG] Pobrano {len(lines)} linii")
+
+        for log_line in lines:
+            stripped = log_line.strip()
+            if not stripped:
+                continue
+
+            line_hash = hash(stripped)
+            if line_hash in processed_lines:
+                continue
+
+            processed_lines.add(line_hash)
+            if len(processed_lines) > MAX_CACHE_SIZE:
+                processed_lines.pop()
+
+            await process_line(client, log_line)
+
     except Exception as e:
         print(f"Błąd sprawdzania logów: {e}")
 
 @client.event
 async def on_ready():
     print(f"Zalogowano jako {client.user}")
-    check_logs.start()                # ← TO BRAKOWAŁO !!!
+    check_logs.start()
     update_players_status.start()
 
 @client.event

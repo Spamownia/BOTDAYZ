@@ -1,46 +1,16 @@
-# ftp_watcher.py – nowa wersja z pamiętaniem pozycji (NOWY PLIK STANU: ftp_state_v2.json)
+# ftp_watcher.py – ignoruje pliki starsze niż start bota + bezpieczny reconnect
 
 from ftplib import FTP
 import os
-import json
 import time
+from datetime import datetime
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-
-STATE_FILE = "ftp_state_v2.json"  # ← NOWA NAZWA – bot zacznie od czystej karty
-OLD_STATE_FILE = "state.json"     # stary plik – usuwamy go automatycznie
 
 class DayZLogWatcher:
     def __init__(self):
-        # Usuń stary state.json jeśli istnieje (żeby uniknąć wczytywania starych pozycji)
-        if os.path.exists(OLD_STATE_FILE):
-            try:
-                os.remove(OLD_STATE_FILE)
-                print(f"[FTP] Usunięto stary plik stanu: {OLD_STATE_FILE}")
-            except Exception as e:
-                print(f"[FTP] Nie udało się usunąć starego stanu: {e}")
-
         self.ftp = None
-        self.tracked_files = self.load_state()
-        print(f"[FTP] Wczytano stan: {len(self.tracked_files)} plików (nowy format)")
-
-    def load_state(self):
-        if os.path.exists(STATE_FILE):
-            try:
-                with open(STATE_FILE, "r") as f:
-                    data = json.load(f)
-                    print(f"[FTP] Odtworzono stan z {len(data)} plików")
-                    return data
-            except Exception as e:
-                print(f"[FTP] Błąd odczytu {STATE_FILE}: {e}")
-        return {}
-
-    def save_state(self):
-        try:
-            with open(STATE_FILE, "w") as f:
-                json.dump(self.tracked_files, f)
-            print("[FTP] Zapisano stan")
-        except Exception as e:
-            print(f"[FTP] Błąd zapisu {STATE_FILE}: {e}")
+        self.start_time = time.time()  # timestamp startu bota (sekundy od epoki)
+        print(f"[FTP] Start bota o {datetime.fromtimestamp(self.start_time).strftime('%Y-%m-%d %H:%M:%S')}")
 
     def connect(self):
         if self.ftp:
@@ -77,8 +47,18 @@ class DayZLogWatcher:
                 if len(parts) >= 9:
                     filename = ' '.join(parts[8:])
                     if filename.startswith("DayZServer_x64_") and filename.endswith((".RPT", ".ADM")):
+                        # Pobierz datę modyfikacji pliku
+                        try:
+                            mod_time_str = ' '.join(parts[5:8])  # np. Jan 15 12:34
+                            mod_time = time.mktime(time.strptime(mod_time_str, "%b %d %H:%M"))
+                            # Jeśli plik jest starszy niż start bota – pomijamy
+                            if mod_time < self.start_time:
+                                continue
+                        except:
+                            continue  # jeśli data nieczytelna – pomijamy
+
                         log_files.append(filename)
-            print(f"[FTP] Znaleziono {len(log_files)} plików logów")
+            print(f"[FTP] Znaleziono {len(log_files)} nowych plików logów (po starcie bota)")
             return sorted(log_files)
         except Exception as e:
             print(f"[FTP] Błąd listy plików: {e}")
@@ -91,46 +71,28 @@ class DayZLogWatcher:
             return ""
 
         new_content = ""
-        updated = False
-
         for filename in log_files:
             try:
                 if not self.connect():
                     continue
 
                 size = self.ftp.size(filename)
-                last_pos = self.tracked_files.get(filename, 0)
-
-                if size <= last_pos:
-                    continue
-
-                delta = size - last_pos
-                print(f"[FTP] +{delta} bajtów → {filename}")
-
-                rest = last_pos
-                if delta > 100_000:
-                    print(f"[FTP] Duży przyrost – pobieram ostatnie 100 KB")
-                    rest = max(last_pos, size - 100_000)
 
                 data = bytearray()
                 def append_data(block):
                     data.extend(block)
 
-                self.ftp.retrbinary(f'RETR {filename}', append_data, rest=rest)
+                self.ftp.retrbinary(f'RETR {filename}', append_data)
 
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
 
-                self.tracked_files[filename] = size
-                updated = True
+                print(f"[FTP] Pobrano cały nowy plik: {filename} ({size} bajtów)")
 
             except Exception as e:
                 print(f"[FTP] Błąd przy {filename}: {e}")
                 self.ftp = None
                 continue
-
-        if updated:
-            self.save_state()
 
         if new_content:
             lines_count = len([l for l in new_content.splitlines() if l.strip()])

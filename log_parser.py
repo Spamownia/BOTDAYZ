@@ -1,4 +1,4 @@
-# log_parser.py – DEBUG + ZAWSZE GODZINA + BEZ BLOKADY NA GODZINĘ (tymczasowo)
+# log_parser.py – FINALNA WERSJA: GODZINA W KAŻDEJ WIADOMOŚCI, BEZ BLOKADY, BEZ GWIAZDEK
 
 import re
 from datetime import datetime
@@ -12,7 +12,7 @@ async def process_line(bot, line: str):
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # Debug: wypisz każdą linię, która dotarła do parsera
+    # Debug – wypisz każdą linię, która dotarła do parsera
     print(f"[DEBUG PARSER] Przetwarzam linię: {line}")
 
     # Wyciągamy godzinę z logu (jeśli jest)
@@ -81,10 +81,10 @@ async def process_line(bot, line: str):
         emoji = emoji_map.get(chat_type, emoji_map["Unknown"])
 
         ansi_color_map = {
-            "Global": "[32m",   # zielony
-            "Admin":  "[31m",   # czerwony
-            "Team":   "[34m",   # niebieski
-            "Direct": "[37m",   # biały
+            "Global": "[32m",
+            "Admin":  "[31m",
+            "Team":   "[34m",
+            "Direct": "[37m",
             "Unknown": "[0m"
         }
         color_code = ansi_color_map.get(chat_type, ansi_color_map["Unknown"])

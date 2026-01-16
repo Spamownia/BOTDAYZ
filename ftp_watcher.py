@@ -1,15 +1,13 @@
-# ftp_watcher.py – tylko najnowszy RPT + ostatnie 300 KB (bez stanu, bez spamu po restarcie)
+# ftp_watcher.py – TYLKO NAJNOWSZY RPT + OSTATNIE 500 KB (bez stanu, bez spamu po restarcie)
 
 from ftplib import FTP
-import os
 import time
-from datetime import datetime
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
-        print("[FTP] Watcher zainicjowany – czyta tylko najnowszy RPT")
+        print("[FTP] Watcher zainicjowany – czyta tylko najnowszy .RPT (ostatnie 500 KB)")
 
     def connect(self):
         if self.ftp:
@@ -52,7 +50,7 @@ class DayZLogWatcher:
                 print("[FTP] Nie znaleziono żadnego pliku .RPT")
                 return None
 
-            # Najnowszy RPT (największa nazwa = najnowszy)
+            # Najnowszy RPT (największa nazwa = najnowszy plik)
             latest_rpt = max(rpt_files)
             print(f"[FTP] Najnowszy log: {latest_rpt}")
             return latest_rpt
@@ -74,9 +72,9 @@ class DayZLogWatcher:
             size = self.ftp.size(latest_file)
             print(f"[FTP] Aktualny rozmiar {latest_file}: {size} bajtów")
 
-            # Zawsze pobieramy ostatnie 300 KB (wystarczająco na nowe linie)
-            rest = max(0, size - 300_000)
-            print(f"[FTP] Pobieram od bajtu {rest} (ostatnie 300 KB)")
+            # Zawsze pobieramy ostatnie 500 KB (bezpieczna wartość na nowe linie)
+            rest = max(0, size - 500_000)
+            print(f"[FTP] Pobieram od bajtu {rest} (ostatnie 500 KB)")
 
             data = bytearray()
             def append_data(block):
@@ -85,14 +83,13 @@ class DayZLogWatcher:
             self.ftp.retrbinary(f'RETR {latest_file}', append_data, rest=rest)
 
             text = data.decode("utf-8", errors="replace")
-            lines = text.splitlines()
 
-            # Odrzucamy ewentualne niepełne linie na początku
-            if lines:
-                text = '\n'.join(lines[1:]) if len(lines) > 1 else lines[0]
+            # Odrzucamy niepełną linię na początku (często śmieci po ciętym pobieraniu)
+            if '\n' in text:
+                text = text[text.index('\n') + 1:]
 
             lines_count = len(text.splitlines())
-            print(f"[FTP] Pobrano {lines_count} nowych linii z {latest_file}")
+            print(f"[FTP] Pobrano {lines_count} potencjalnie nowych linii z {latest_file}")
 
             return text
 

@@ -51,7 +51,7 @@ class DayZLogWatcher:
                         try:
                             mod_time_str = ' '.join(parts[5:8])  # np. Jan 15 12:34
                             mod_time = time.mktime(time.strptime(mod_time_str, "%b %d %H:%M"))
-                            # Jeśli plik jest starszy niż start bota – pomijamy
+                            # Pomijamy pliki starsze niż start bota
                             if mod_time < self.start_time:
                                 continue
                         except:

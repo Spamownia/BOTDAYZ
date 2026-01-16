@@ -1,37 +1,13 @@
-# ftp_watcher.py – DayZ Log Watcher z DayZLogWatcher klasą
+# ftp_watcher.py – TYLKO NAJNOWSZY .RPT + OSTATNIE 2 MB (bez stanu, bez spamu po restarcie)
 
 from ftplib import FTP
-import os
-import json
 import time
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-
-STATE_FILE = "state.json"
 
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
-        self.tracked_files = self.load_state()
-        print(f"[FTP] Wczytano stan dla {len(self.tracked_files)} plików logów")
-
-    def load_state(self):
-        if os.path.exists(STATE_FILE):
-            try:
-                with open(STATE_FILE, "r") as f:
-                    data = json.load(f)
-                    print(f"[FTP] Odtworzono pozycję z {len(data)} plików")
-                    return data
-            except Exception as e:
-                print(f"[FTP] Błąd odczytu state.json: {e}")
-        return {}
-
-    def save_state(self):
-        try:
-            with open(STATE_FILE, "w") as f:
-                json.dump(self.tracked_files, f)
-            print(f"[FTP] Zaktualizowano state.json ({len(self.tracked_files)} plików)")
-        except Exception as e:
-            print(f"[FTP] Nie udało się zapisać state.json: {e}")
+        print("[FTP] Watcher zainicjowany – czyta tylko najnowszy .RPT (ostatnie 2 MB)")
 
     def connect(self):
         if self.ftp:
@@ -41,84 +17,82 @@ class DayZLogWatcher:
             except:
                 self.ftp = None
 
-        print(f"[FTP] Łączenie z {FTP_HOST}:{FTP_PORT}...")
         try:
-            self.ftp = FTP()
-            self.ftp.connect(host=FTP_HOST, port=FTP_PORT, timeout=20)
+            print("[FTP] Łączenie...")
+            self.ftp = FTP(timeout=30)
+            self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
             self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
             self.ftp.cwd(FTP_LOG_DIR)
-            print("[FTP] Połączono z FTP")
+            print("[FTP] Połączono")
             return True
         except Exception as e:
             print(f"[FTP] Błąd połączenia: {e}")
             self.ftp = None
+            time.sleep(2)
             return False
 
-    def get_log_files(self):
+    def get_latest_rpt(self):
         if not self.connect():
-            return []
+            return None
+
         try:
             files = []
-            self.ftp.retrlines('LIST', files.append)
-            log_files = []
+            self.ftp.dir(files.append)
+            rpt_files = []
             for line in files:
                 parts = line.split()
                 if len(parts) >= 9:
                     filename = ' '.join(parts[8:])
-                    if filename.startswith("DayZServer_x64_") and filename.endswith((".RPT", ".ADM")):
-                        log_files.append(filename)
-            return sorted(log_files)
+                    if filename.startswith("DayZServer_x64_") and filename.endswith(".RPT"):
+                        rpt_files.append(filename)
+
+            if not rpt_files:
+                print("[FTP] Nie znaleziono żadnego pliku .RPT")
+                return None
+
+            latest_rpt = max(rpt_files)  # najnowsza nazwa = najnowszy plik
+            print(f"[FTP] Najnowszy log: {latest_rpt}")
+            return latest_rpt
+
         except Exception as e:
             print(f"[FTP] Błąd listy plików: {e}")
             self.ftp = None
-            return []
+            return None
 
     def get_new_content(self):
-        log_files = self.get_log_files()
-        if not log_files:
+        latest_file = self.get_latest_rpt()
+        if not latest_file:
             return ""
 
-        new_content = ""
-        updated = False
+        try:
+            if not self.connect():
+                return ""
 
-        for filename in log_files:
-            try:
-                size = self.ftp.size(filename)
-                last_size = self.tracked_files.get(filename, 0)
+            size = self.ftp.size(latest_file)
+            print(f"[FTP] Aktualny rozmiar {latest_file}: {size} bajtów")
 
-                if size <= last_size:
-                    continue
+            # Zawsze pobieramy ostatnie 2 MB – bezpiecznie na nowe zdarzenia graczy
+            rest = max(0, size - 2_000_000)
+            print(f"[FTP] Pobieram od bajtu {rest} (ostatnie 2 MB)")
 
-                delta = size - last_size
-                print(f"[FTP] +{delta} bajtów → {filename}")
+            data = bytearray()
+            def append_data(block):
+                data.extend(block)
 
-                # Bezpieczne pobieranie – dla dużych delta pobieramy tylko ostatnie 100 KB
-                rest = last_size
-                if delta > 100_000:  # >100 KB
-                    print(f"[FTP] Plik za duży – pobieram tylko ostatnie 100 KB")
-                    rest = max(last_size, size - 100_000)
+            self.ftp.retrbinary(f'RETR {latest_file}', append_data, rest=rest)
 
-                data = bytearray()
-                def append_data(block):
-                    data.extend(block)
+            text = data.decode("utf-8", errors="replace")
 
-                self.ftp.retrbinary(f'RETR {filename}', append_data, rest=rest)
+            # Odrzucamy niepełną linię na początku
+            if '\n' in text:
+                text = text[text.index('\n') + 1:]
 
-                text = data.decode("utf-8", errors="replace")
-                new_content += text
+            lines_count = len(text.splitlines())
+            print(f"[FTP] Pobrano {lines_count} potencjalnie nowych linii z {latest_file}")
 
-                self.tracked_files[filename] = size
-                updated = True
+            return text
 
-            except Exception as e:
-                print(f"[FTP] Błąd przy {filename}: {e}")
-                continue
-
-        if updated:
-            self.save_state()
-
-        if new_content:
-            lines_count = len([l for l in new_content.splitlines() if l.strip()])
-            print(f"[FTP] Pobrano {lines_count} nowych linii")
-
-        return new_content
+        except Exception as e:
+            print(f"[FTP] Błąd przy pobieraniu {latest_file}: {e}")
+            self.ftp = None
+            return ""

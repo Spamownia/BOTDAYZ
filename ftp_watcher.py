@@ -1,4 +1,4 @@
-# ftp_watcher.py – pamięta ostatnią pozycję w każdym pliku + ignoruje stare pliki
+# ftp_watcher.py – nowa wersja z pamiętaniem pozycji (NOWY PLIK STANU: ftp_state_v2.json)
 
 from ftplib import FTP
 import os
@@ -6,13 +6,22 @@ import json
 import time
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
-STATE_FILE = "state.json"
+STATE_FILE = "ftp_state_v2.json"  # ← NOWA NAZWA – bot zacznie od czystej karty
+OLD_STATE_FILE = "state.json"     # stary plik – usuwamy go automatycznie
 
 class DayZLogWatcher:
     def __init__(self):
+        # Usuń stary state.json jeśli istnieje (żeby uniknąć wczytywania starych pozycji)
+        if os.path.exists(OLD_STATE_FILE):
+            try:
+                os.remove(OLD_STATE_FILE)
+                print(f"[FTP] Usunięto stary plik stanu: {OLD_STATE_FILE}")
+            except Exception as e:
+                print(f"[FTP] Nie udało się usunąć starego stanu: {e}")
+
         self.ftp = None
         self.tracked_files = self.load_state()
-        print(f"[FTP] Wczytano stan dla {len(self.tracked_files)} plików")
+        print(f"[FTP] Wczytano stan: {len(self.tracked_files)} plików (nowy format)")
 
     def load_state(self):
         if os.path.exists(STATE_FILE):
@@ -22,7 +31,7 @@ class DayZLogWatcher:
                     print(f"[FTP] Odtworzono stan z {len(data)} plików")
                     return data
             except Exception as e:
-                print(f"[FTP] Błąd odczytu state.json: {e}")
+                print(f"[FTP] Błąd odczytu {STATE_FILE}: {e}")
         return {}
 
     def save_state(self):
@@ -31,7 +40,7 @@ class DayZLogWatcher:
                 json.dump(self.tracked_files, f)
             print("[FTP] Zapisano stan")
         except Exception as e:
-            print(f"[FTP] Błąd zapisu state.json: {e}")
+            print(f"[FTP] Błąd zapisu {STATE_FILE}: {e}")
 
     def connect(self):
         if self.ftp:
@@ -112,7 +121,6 @@ class DayZLogWatcher:
                 text = data.decode("utf-8", errors="replace")
                 new_content += text
 
-                # Zapisujemy nową pozycję
                 self.tracked_files[filename] = size
                 updated = True
 

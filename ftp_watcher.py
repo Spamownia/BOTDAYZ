@@ -1,13 +1,9 @@
-# ftp_watcher.py – TYLKO NAJNOWSZY .RPT + OSTATNIE 2 MB (bez stanu, bez spamu po restarcie)
-
-from ftplib import FTP
-import time
-from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
-        print("[FTP] Watcher zainicjowany – czyta tylko najnowszy .RPT (ostatnie 2 MB)")
+        self.last_file = None
+        self.last_position = 0
+        print("[FTP] Watcher zainicjowany – czyta tylko najnowszy .RPT z trackingiem stanu")
 
     def connect(self):
         if self.ftp:
@@ -71,28 +67,39 @@ class DayZLogWatcher:
             size = self.ftp.size(latest_file)
             print(f"[FTP] Aktualny rozmiar {latest_file}: {size} bajtów")
 
-            # Zawsze pobieramy ostatnie 2 MB – bezpiecznie na nowe zdarzenia graczy
-            rest = max(0, size - 2_000_000)
-            print(f"[FTP] Pobieram od bajtu {rest} (ostatnie 2 MB)")
+            if latest_file != self.last_file:
+                # Nowy plik – reset i pobierz ostatnie 2 MB
+                print(f"[FTP] Nowy plik wykryty: {latest_file}. Reset pozycji.")
+                self.last_file = latest_file
+                self.last_position = max(0, size - 2_000_000)
+            else:
+                # Ten sam plik – pobierz od ostatniej pozycji
+                if self.last_position >= size:
+                    print("[FTP] Brak nowych danych (pozycja >= rozmiar)")
+                    return ""
+                print(f"[FTP] Pobieram od bajtu {self.last_position} (ten sam plik)")
 
             data = bytearray()
             def append_data(block):
                 data.extend(block)
 
-            self.ftp.retrbinary(f'RETR {latest_file}', append_data, rest=rest)
+            self.ftp.retrbinary(f'RETR {latest_file}', append_data, rest=self.last_position)
 
             text = data.decode("utf-8", errors="replace")
 
-            # Odrzucamy niepełną linię na początku
-            if '\n' in text:
+            # Odrzucamy niepełną linię na początku (jeśli istnieje)
+            if text and text[0] != '\n' and '\n' in text:
                 text = text[text.index('\n') + 1:]
 
+            self.last_position = size  # Zaktualizuj pozycję po pobraniu
+
             lines_count = len(text.splitlines())
-            print(f"[FTP] Pobrano {lines_count} potencjalnie nowych linii z {latest_file}")
+            print(f"[FTP] Pobrano {lines_count} nowych linii z {latest_file}")
 
             return text
 
         except Exception as e:
             print(f"[FTP] Błąd przy pobieraniu {latest_file}: {e}")
             self.ftp = None
+            # Nie resetuj pozycji na błąd, aby nie stracić postępu
             return ""

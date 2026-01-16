@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: Z GODZINĄ W KAŻDEJ WIADOMOŚCI, BEZ GWIAZDEK
+# log_parser.py – FINALNA WERSJA: Z GODZINĄ, BEZ SPAMU TYCH SAMYCH LINII
 
 import re
 from datetime import datetime
@@ -7,14 +7,25 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
 player_login_times = {}
 
+# Pamięć ostatniej przetworzonej godziny (globalna – w pamięci bota)
+last_processed_time = "00:00:00"  # startujemy od początku dnia
+
 async def process_line(bot, line: str):
+    global last_processed_time
     client = bot
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # Wyciągamy godzinę z logu (pierwsza pasująca HH:MM:SS)
+    # Wyciągamy godzinę z linii logu (pierwsza pasująca HH:MM:SS)
     time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
+
+    # Pomijamy linię, jeśli godzina jest starsza lub równa ostatniej przetworzonej
+    if log_time <= last_processed_time:
+        return  # nie wysyłamy duplikatów/starych linii
+
+    # Aktualizujemy ostatnią przetworzoną godzinę (tylko jeśli linia przeszła filtr)
+    last_processed_time = log_time
 
     # 1. KOLEJKOWANIE – zielony + godzina
     if "[Login]: Adding player" in line:
@@ -95,16 +106,14 @@ async def process_line(bot, line: str):
 
         return
 
-    # 5. COT – biały ANSI, format: ADMIN | [COT] STEAMID | GODZINA | TREŚĆ (tylko jedna godzina)
+    # 5. COT – biały ANSI, format: ADMIN | [COT] STEAMID | GODZINA | TREŚĆ
     if "[COT]" in line:
         steamid_match = re.search(r'\[COT\]\s*(\d{17,}):', line)
         steamid = steamid_match.group(1) if steamid_match else "nieznany"
 
-        # Godzina tylko jedna – pierwsza w linii logu
         time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
         cot_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
 
-        # Treść akcji – wszystko po pierwszym :, usuwamy duplikaty godziny i guid
         action_text = line.split(":", 1)[1].strip() if ":" in line else line.strip()
         action_text = re.sub(r'\d{2}:\d{2}:\d{2}', '', action_text).strip()
         action_text = re.sub(r'\[guid=.*?]', '', action_text).strip()

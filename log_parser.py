@@ -1,4 +1,4 @@
-# log_parser.py – FINALNA WERSJA: Z GODZINĄ, BEZ SPAMU TYCH SAMYCH LINII
+# log_parser.py – DEBUG + ZAWSZE GODZINA + BEZ BLOKADY NA GODZINĘ (tymczasowo)
 
 import re
 from datetime import datetime
@@ -7,25 +7,17 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
 player_login_times = {}
 
-# Pamięć ostatniej przetworzonej godziny (globalna – w pamięci bota)
-last_processed_time = "00:00:00"  # startujemy od początku dnia
-
 async def process_line(bot, line: str):
-    global last_processed_time
     client = bot
     line = line.strip()
     current_time = datetime.utcnow()
 
-    # Wyciągamy godzinę z linii logu (pierwsza pasująca HH:MM:SS)
+    # Debug: wypisz każdą linię, która dotarła do parsera
+    print(f"[DEBUG PARSER] Przetwarzam linię: {line}")
+
+    # Wyciągamy godzinę z logu (jeśli jest)
     time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else current_time.strftime("%H:%M:%S")
-
-    # Pomijamy linię, jeśli godzina jest starsza lub równa ostatniej przetworzonej
-    if log_time <= last_processed_time:
-        return  # nie wysyłamy duplikatów/starych linii
-
-    # Aktualizujemy ostatnią przetworzoną godzinę (tylko jeśli linia przeszła filtr)
-    last_processed_time = log_time
 
     # 1. KOLEJKOWANIE – zielony + godzina
     if "[Login]: Adding player" in line:
@@ -70,7 +62,7 @@ async def process_line(bot, line: str):
                 await channel.send(f"```ansi\n[31m🔴 {message_line}[0m\n```")
         return
 
-    # 4. CHAT – emotka + nazwa | godzina | nick: treść (bez gwiazdek)
+    # 4. CHAT – emotka + nazwa | godzina | nick: treść
     if match := re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line):
         chat_type = match.group(1)
         player = match.group(2)

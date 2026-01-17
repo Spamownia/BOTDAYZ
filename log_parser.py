@@ -17,11 +17,24 @@ async def process_line(bot, line: str):
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # CONNECT – zielony embed
-    if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) is connected', line)
-        if match:
-            name, pid = match.groups()
+    # CONNECT – zielony embed (dostosowane pod steamID= i has connected)
+    if "is connected" in line or "has connected" in line:
+        # Najpierw wersja z steamID=
+        match_steam = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
+        if match_steam:
+            name, steamid = match_steam.groups()
+            player_login_times[name] = datetime.utcnow()
+            embed = create_connect_embed(name, "connect")
+            embed.add_field(name="SteamID", value=steamid, inline=True)
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(embed=embed)
+            return
+
+        # Alternatywna wersja z id= lub bez
+        match_id = re.search(r'Player "([^"]+)"\(id=([^)]+)\) is connected', line)
+        if match_id:
+            name, pid = match_id.groups()
             player_login_times[name] = datetime.utcnow()
             embed = create_connect_embed(name, "connect")
             embed.add_field(name="ID", value=pid[:8] + "...", inline=True)
@@ -30,8 +43,20 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # DISCONNECT – pomarańczowy embed + czas online
-    if "has been disconnected" in line and 'Player "' in line:
+        # Linia "has connected" bez szczegółów
+        match_has = re.search(r'Player ([^ ]+) \(id=([^)]+)\) has connected', line)
+        if match_has:
+            name, pid = match_has.groups()
+            player_login_times[name] = datetime.utcnow()
+            embed = create_connect_embed(name, "connect")
+            embed.add_field(name="ID", value=pid[:8] + "...", inline=True)
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(embed=embed)
+            return
+
+    # DISCONNECT – pomarańczowy embed
+    if "has been disconnected" in line:
         match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
             name, pid = match.groups()
@@ -48,30 +73,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # KILL PLAYER vs PLAYER – czerwony embed
-    if "(DEAD)" in line and "killed by Player" in line:
-        match = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
-        if match:
-            victim, killer, weapon, dist = match.groups()
-            embed = create_kill_embed(victim, killer, weapon, dist)
-            ch = client.get_channel(CHANNEL_IDS["kills"])
-            if ch:
-                await ch.send(embed=embed)
-            return
-
-    # DEATH by ZOMBIE / INNE – szary embed
-    if "[HP: 0]" in line and "hit by" in line:
-        match = re.search(r'Player "([^"]+)" .* hit by (Infected|Player) .* for ([\d.]+) damage \(([^)]+)\)', line)
-        if match:
-            victim, cause_type, dmg, weapon = match.groups()
-            cause = f"{cause_type} ({weapon}) za {dmg} dmg"
-            embed = create_death_embed(victim, cause)
-            ch = client.get_channel(CHANNEL_IDS["deaths"])
-            if ch:
-                await ch.send(embed=embed)
-            return
-
-    # COT / ADMIN – biały ANSI
+    # COT – ANSI
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
@@ -83,12 +85,24 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # Wysyłaj KAŻDĄ linię do debug (tymczasowo – usuń później jeśli chcesz)
+    # KILL / DEATH – czerwony / szary embed (dostosuj, gdy pojawią się linie z zabójstwami)
+    if "[HP: 0]" in line or "killed by" in line:
+        # Przykład – rozszerz gdy zobaczysz pełne linie kill
+        match_kill = re.search(r'Player "([^"]+)" .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
+        if match_kill:
+            victim, killer, weapon, dist = match_kill.groups()
+            embed = create_kill_embed(victim, killer, weapon, dist)
+            ch = client.get_channel(CHANNEL_IDS["kills"])
+            if ch:
+                await ch.send(embed=embed)
+            return
+
+    # Wysyłaj KAŻDĄ linię do debug (do testu – możesz później ograniczyć)
     debug_ch = client.get_channel(CHANNEL_IDS.get("debug"))
     if debug_ch:
         try:
-            short_line = line[:1900] + "..." if len(line) > 1900 else line
-            await debug_ch.send(f"```log\n{short_line}\n```")
-            print("[DEBUG] Wysłałem surową linię do debug kanału")
+            short = line[:1900] + "..." if len(line) > 1900 else line
+            await debug_ch.send(f"```log\n{short}\n```")
+            print("[DEBUG] Wysłałem linię do debug")
         except Exception as e:
-            print(f"[DEBUG ERR] Błąd wysyłki do debug: {e}")
+            print(f"[DEBUG ERR] {e}")

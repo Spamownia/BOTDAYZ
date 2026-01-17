@@ -55,7 +55,7 @@ async def on_ready():
     update_status.start()
     check_logs.start()
     print("[BOT] Natychmiastowe pierwsze sprawdzenie...")
-    await check_logs()   # ← pierwsze wywołanie od razu
+    await check_logs()   # pierwsze wywołanie od razu
 
 if __name__ == "__main__":
     client.run(DISCORD_TOKEN)

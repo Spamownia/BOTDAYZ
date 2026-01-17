@@ -47,7 +47,6 @@ class DayZLogWatcher:
             return None
 
         try:
-            # Używamy dir() zamiast nlst() – zwraca linie tekstowe jak w konsoli FTP
             files_lines = []
             self.ftp.dir(files_lines.append)
             print(f"[FTP DEBUG] dir() zwróciło {len(files_lines)} linii")

@@ -7,7 +7,7 @@ class DayZLogWatcher:
         self.ftp = None
         self.last_file = None
         self.last_position = 0
-        print("[FTP] Watcher wystartował – czyta .RPT i .ADM, śledzi pozycję")
+        print("[FTP] Watcher wystartował – czyta .RPT / .ADM")
 
     def connect(self):
         if self.ftp:
@@ -18,13 +18,13 @@ class DayZLogWatcher:
                 self.ftp = None
 
         try:
-            print("[FTP] Łączenie...")
+            print(f"[FTP] Łączenie z {FTP_HOST}:{FTP_PORT} jako {FTP_USER} …")
             self.ftp = FTP(timeout=25)
             self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
             self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
             self.ftp.cwd(FTP_LOG_DIR)
-            self.ftp.set_pasv(True)  # często pomaga z połączeniami
-            print("[FTP] Połączono")
+            self.ftp.set_pasv(True)
+            print(f"[FTP] Połączono – katalog: {self.ftp.pwd()}")
             return True
         except Exception as e:
             print(f"[FTP] Błąd połączenia: {e}")
@@ -38,15 +38,17 @@ class DayZLogWatcher:
 
         try:
             files = self.ftp.nlst()
-            log_files = [f for f in files if f.startswith("DayZServer_x64_") and (f.endswith(".RPT") or f.endswith(".ADM"))]
+            print(f"[FTP] Znaleziono {len(files)} elementów w katalogu")
+            log_files = [f for f in files if f.lower().endswith(('.rpt', '.adm'))]
             if not log_files:
-                print("[FTP] Brak plików .RPT lub .ADM")
+                print("[FTP] Brak plików .RPT / .ADM !")
+                print("[FTP DEBUG] Przykładowe pliki:", files[:10])
                 return None
-            latest_log = max(log_files)  # najnowszy alfabetycznie (data w nazwie)
-            print(f"[FTP] Najnowszy log: {latest_log}")
-            return latest_log
+            latest = max(log_files)
+            print(f"[FTP] Wybrany najnowszy plik: {latest}")
+            return latest
         except Exception as e:
-            print(f"[FTP] Błąd listy plików: {e}")
+            print(f"[FTP] Błąd listowania: {e}")
             return None
 
     def get_new_content(self):
@@ -59,37 +61,36 @@ class DayZLogWatcher:
                 return ""
 
             size = self.ftp.size(latest_file)
-            print(f"[FTP] Rozmiar {latest_file}: {size:,} bajtów")
+            print(f"[FTP] Plik {latest_file} → {size:,} bajtów")
 
             if latest_file != self.last_file:
-                print(f"[FTP] Nowy plik: {latest_file} – start od końca (4 MB)")
+                print(f"[FTP] Nowy plik wykryty → reset pozycji")
                 self.last_file = latest_file
-                self.last_position = max(0, size - 4_000_000)
+                self.last_position = max(0, size - 5_000_000)  # 5 MB na start
 
             if self.last_position >= size:
-                print("[FTP] Brak nowych danych")
+                print("[FTP] Brak nowych bajtów")
                 return ""
 
-            print(f"[FTP] Pobieram {size - self.last_position:,} bajtów od {self.last_position:,}")
+            to_read = size - self.last_position
+            print(f"[FTP] Pobieram {to_read:,} bajtów od {self.last_position:,}")
 
             data = bytearray()
             self.ftp.retrbinary(f'RETR {latest_file}', data.extend, rest=self.last_position)
 
             text = data.decode('utf-8', errors='replace')
 
-            # Usuwamy niepełną linię na początku
             if text and '\n' in text:
                 text = text[text.index('\n') + 1:]
 
             self.last_position = size
 
-            lines_count = len(text.splitlines())
-            print(f"[FTP] Pobrano {lines_count} nowych linii")
+            lines = len(text.splitlines())
+            print(f"[FTP] Pobrano {lines} linii")
 
-            # DEBUG: pokaż początek
             if text:
-                preview = text[:300].replace('\n', ' ◄NL► ')
-                print(f"[FTP DEBUG] Początek danych: {preview}...")
+                preview = text[:280].replace('\n', ' ◄NL► ')
+                print(f"[FTP PREVIEW] {preview}...")
 
             return text
 

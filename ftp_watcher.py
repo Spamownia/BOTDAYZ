@@ -7,7 +7,7 @@ class DayZLogWatcher:
         self.ftp = None
         self.last_file = None
         self.last_position = 0
-        print("[FTP] Watcher wystartował – śledzi pozycję w pliku")
+        print("[FTP] Watcher wystartował – czyta .RPT i .ADM, śledzi pozycję")
 
     def connect(self):
         if self.ftp:
@@ -23,7 +23,7 @@ class DayZLogWatcher:
             self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
             self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
             self.ftp.cwd(FTP_LOG_DIR)
-            self.ftp.set_pasv(True)  # dodane – często pomaga
+            self.ftp.set_pasv(True)  # często pomaga z połączeniami
             print("[FTP] Połączono")
             return True
         except Exception as e:
@@ -32,27 +32,26 @@ class DayZLogWatcher:
             time.sleep(3)
             return False
 
-    def get_latest_rpt(self):
+    def get_latest_log(self):
         if not self.connect():
             return None
 
         try:
             files = self.ftp.nlst()
-            rpt_files = [f for f in files if ".RPT" in f.upper()]
-            if not rpt_files:
-                print("[FTP] Brak plików .RPT")
+            log_files = [f for f in files if f.startswith("DayZServer_x64_") and (f.endswith(".RPT") or f.endswith(".ADM"))]
+            if not log_files:
+                print("[FTP] Brak plików .RPT lub .ADM")
                 return None
-            latest_rpt = max(rpt_files)
-            print(f"[FTP] Najnowszy plik: {latest_rpt}")
-            return latest_rpt
+            latest_log = max(log_files)  # najnowszy alfabetycznie (data w nazwie)
+            print(f"[FTP] Najnowszy log: {latest_log}")
+            return latest_log
         except Exception as e:
             print(f"[FTP] Błąd listy plików: {e}")
             return None
 
     def get_new_content(self):
-        latest_file = self.get_latest_rpt()
+        latest_file = self.get_latest_log()
         if not latest_file:
-            print("[FTP] Nie znaleziono pliku .RPT")
             return ""
 
         try:
@@ -63,7 +62,7 @@ class DayZLogWatcher:
             print(f"[FTP] Rozmiar {latest_file}: {size:,} bajtów")
 
             if latest_file != self.last_file:
-                print(f"[FTP] Nowy plik: {latest_file} – start od {max(0, size - 4_000_000):,} bajtów")
+                print(f"[FTP] Nowy plik: {latest_file} – start od końca (4 MB)")
                 self.last_file = latest_file
                 self.last_position = max(0, size - 4_000_000)
 
@@ -85,14 +84,12 @@ class DayZLogWatcher:
             self.last_position = size
 
             lines_count = len(text.splitlines())
-            print(f"[FTP] Pobrano {lines_count} linii")
+            print(f"[FTP] Pobrano {lines_count} nowych linii")
 
-            # DEBUG: pokaż początek pobranych danych
+            # DEBUG: pokaż początek
             if text:
                 preview = text[:300].replace('\n', ' ◄NL► ')
-                print(f"[FTP DEBUG] Początek pobranych danych: {preview}")
-            else:
-                print("[FTP DEBUG] Pobrano 0 bajtów tekstu")
+                print(f"[FTP DEBUG] Początek danych: {preview}...")
 
             return text
 

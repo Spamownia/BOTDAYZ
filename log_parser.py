@@ -19,7 +19,7 @@ async def process_line(bot, line: str):
 
     # CONNECT – zielony embed
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"$$   id=([^)]+)   $$ is connected', line)
+        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) is connected', line)
         if match:
             name, pid = match.groups()
             player_login_times[name] = datetime.utcnow()
@@ -32,7 +32,7 @@ async def process_line(bot, line: str):
 
     # DISCONNECT – pomarańczowy embed + czas online
     if "has been disconnected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"$$   id=([^)]+)   $$ has been disconnected', line)
+        match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) has been disconnected', line)
         if match:
             name, pid = match.groups()
             online_str = "nieznany"
@@ -50,7 +50,7 @@ async def process_line(bot, line: str):
 
     # KILL PLAYER vs PLAYER – czerwony embed
     if "(DEAD)" in line and "killed by Player" in line:
-        match = re.search(r'Player "([^"]+)" $$   DEAD   $$ .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
+        match = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match:
             victim, killer, weapon, dist = match.groups()
             embed = create_kill_embed(victim, killer, weapon, dist)
@@ -61,7 +61,7 @@ async def process_line(bot, line: str):
 
     # DEATH by ZOMBIE / INNE – szary embed
     if "[HP: 0]" in line and "hit by" in line:
-        match = re.search(r'Player "([^"]+)" .* hit by (Infected|Player) .* for ([\d.]+) damage $$   ([^)]+)   $$', line)
+        match = re.search(r'Player "([^"]+)" .* hit by (Infected|Player) .* for ([\d.]+) damage \(([^)]+)\)', line)
         if match:
             victim, cause_type, dmg, weapon = match.groups()
             cause = f"{cause_type} ({weapon}) za {dmg} dmg"
@@ -73,22 +73,22 @@ async def process_line(bot, line: str):
 
     # COT / ADMIN – biały ANSI
     if "[COT]" in line:
-        match = re.search(r'$$   COT   $$ (\d{17,}): (.+)', line)
+        match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
             steamid, action = match.groups()
-            action = action.strip().replace('[guid=...]', '').strip()
+            action = action.strip().replace('[guid=.*?]', '').strip()
             msg = f"{log_time} ADMIN | [COT] {steamid} | {action}"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
-                await ch.send(f"```ansi
+                await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # Jeśli masz chat w .ADM lub .RPT – dodaj później
-    # Na razie wysyłamy wszystko do debug (jeśli włączony)
+    # Wysyłaj KAŻDĄ linię do debug (tymczasowo – usuń później jeśli chcesz)
     debug_ch = client.get_channel(CHANNEL_IDS.get("debug"))
     if debug_ch:
         try:
-            short = line[:1900] + "..." if len(line) > 1900 else line
-            await debug_ch.send(f"```log\n{short}\n```")
-        except:
-            pass
+            short_line = line[:1900] + "..." if len(line) > 1900 else line
+            await debug_ch.send(f"```log\n{short_line}\n```")
+            print("[DEBUG] Wysłałem surową linię do debug kanału")
+        except Exception as e:
+            print(f"[DEBUG ERR] Błąd wysyłki do debug: {e}")

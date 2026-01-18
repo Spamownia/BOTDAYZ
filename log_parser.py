@@ -20,42 +20,51 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. JOIN (logowanie)
-    if any(kw in line for kw in ["is connected", "has connected"]) and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
+    # 1. Dodany do kolejki logowania (nowy format)
+    if "[Login]:" in line and "Adding player" in line:
+        match = re.search(r'Adding player ([^ ]+) \((\d+)\) to login queue', line)
         if match:
-            name = match.group(1).strip()
-            id_val = match.group(2)
-            player_login_times[name] = datetime.utcnow()
-            embed = create_connect_embed(name, "connect")
-            embed.add_field(name="ID/SteamID", value=id_val, inline=True)
-            embed.set_footer(text=f"{date_str} | {log_time}")
+            name = match.group(1)
+            dpnid = match.group(2)
+            msg = f"🟢 Login → Gracz {name} → Dodany do kolejki logowania"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(embed=embed)
+                await ch.send(f"```{msg}```")
             return
 
-    # 2. DISCONNECT (wylogowanie) – rozszerzony warunek
+    # 2. Połączono (nowy format z SteamID)
+    if "is connected" in line and 'Player "' in line:
+        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
+        if match:
+            name = match.group(1).strip()
+            steamid = match.group(2)
+            player_login_times[name] = datetime.utcnow()
+            msg = f"🟢 Połączono → {name} (SteamID: {steamid})"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```{msg}```")
+            return
+
+    # 3. Rozłączono (nowy format z czasem online)
     if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected", "quit", "left"]):
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\)', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
             time_online = "nieznany"
             if name in player_login_times:
                 delta = datetime.utcnow() - player_login_times[name]
-                time_online = f"{int(delta.total_seconds() // 60)} min {int(delta.seconds % 60)} s"
+                minutes = int(delta.total_seconds() // 60)
+                seconds = int(delta.seconds % 60)
+                time_online = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            embed = create_connect_embed(name, "disconnect")
-            embed.add_field(name="ID/SteamID", value=id_val, inline=True)
-            embed.add_field(name="Czas online", value=time_online, inline=True)
-            embed.set_footer(text=f"{date_str} | {log_time}")
+            msg = f"🔴 Rozłączono → {name} ({id_val}) → {time_online}"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(embed=embed)
+                await ch.send(f"```{msg}```")
             return
 
-    # 3. COT
+    # 4. COT (bez zmian)
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
@@ -67,7 +76,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. CHAT
+    # 5. CHAT (bez zmian)
     if any(kw in line for kw in ["[Chat", "Chat:", "said in channel"]):
         match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
         if match:
@@ -87,7 +96,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # 5. ZABÓJSTWA
+    # 6. ZABÓJSTWA (bez zmian)
     if any(kw in line for kw in ["killed by", "hit by", "[HP: 0]", "DEAD"]):
         match_pvp = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_pvp:

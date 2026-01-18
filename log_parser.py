@@ -31,27 +31,27 @@ async def process_line(bot, line: str):
         if match:
             name = match.group(1)
             dpnid = match.group(2)
-            msg = f"🟢 {date_str} | {log_time} Login → Gracz {name} → Dodany do kolejki logowania"
+            msg = f"{date_str} | {log_time} 🟢 Login → Gracz {name} → Dodany do kolejki logowania"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```{msg}```")
+                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Połączono – zielony
+    # 2. Połączono – zielony (dopasowane do .ADM id=guid)
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
             player_login_times[name] = datetime.utcnow()
-            msg = f"🟢 {date_str} | {log_time} Połączono → {name} (SteamID: {id_val})"
+            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```{msg}```")
+                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 3. Rozłączono – czerwony + czas online (jeśli jest obliczony, nie "nieznany")
-    if "has been disconnected" in line or "disconnected" in line.lower():
+    # 3. Rozłączono – czerwony (dopasowane do .ADM)
+    if "has been disconnected" in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1).strip()
@@ -63,36 +63,38 @@ async def process_line(bot, line: str):
                 seconds = int(delta.seconds % 60)
                 time_online = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            msg = f"🔴 {date_str} | {log_time} Rozłączono → {name} ({id_val}) → {time_online}"
+            msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} ({id_val}) → {time_online}"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```{msg}```")
+                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # 4. COT – biały ANSI (bez zmian, już działa)
+    # 4. COT – biały ANSI (bez zmian)
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
             steamid = match.group(1)
             action = match.group(2).strip()
             guid = match.group(3) or "brak"
-            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
+            msg = f"{date_str} | {log_time} ADMIN | [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 5. Hit / Death – żółty/czerwony (bez zmian, już działa)
+    # 5. Hit / Death – żółty/czerwony (bez zmian)
     if "hit by" in line or "[HP: 0]" in line:
         match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
         if match_hit:
             name, part, dmg, cause = match_hit.groups()
             hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
             hp = hp_match.group(1) if hp_match else "nieznane"
-            msg = f"{date_str} | {log_time} ⚠️ {name} trafiony zombie w {part} za {dmg} dmg (HP: {hp})"
+            color = "[31m" if hp == "0" else "[33m"
+            emoji = "☠️" if hp == "0" else "⚠️"
+            msg = f"{date_str} | {log_time} {emoji} {name} trafiony zombie w {part} za {dmg} dmg (HP: {hp})"
             ch = client.get_channel(CHANNEL_IDS["deaths"])
             if ch:
-                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
     # AUTO SAVE (bez zmian)

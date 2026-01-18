@@ -6,21 +6,17 @@ from utils import create_connect_embed, create_kill_embed, create_death_embed, c
 
 player_login_times = {}
 
-# Plik do zapisywania nierozpoznanych linii (debug bez spamowania Discorda)
-UNPARSED_LOG = "unparsed_lines.log"
-
 async def process_line(bot, line: str):
     client = bot
     line = line.strip()
     if not line:
         return
 
-    print(f"[DEBUG PARSER] Przetwarzam linię: {line}")
-
+    # Wyciągamy godzinę
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # 1. JOIN (logowanie) – zielony embed
+    # 1. JOIN (logowanie)
     if "is connected" in line or "has connected" in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if not match:
@@ -37,8 +33,8 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 2. DISCONNECT (wylogowanie) – pomarańczowy embed z czasem online
-    if "has been disconnected" in line or "disconnected" in line.lower():
+    # 2. DISCONNECT (wylogowanie)
+    if any(x in line.lower() for x in ["disconnected", "has quit", "left the server"]):
         match = re.search(r'Player "([^"]+)"\(.*?(?:steamID|id)=([^)]+)\)', line)
         if match:
             name = match.group(1).strip()
@@ -57,22 +53,22 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 3. COT (akcje admina) – biały ANSI
+    # 3. COT (akcje admina)
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
             steamid = match.group(1)
             action = match.group(2).strip()
             guid = match.group(3) or "brak"
-            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} ADMIN | [COT] {steamid} | {action} [guid={guid}]"
+            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. ZABÓJSTWA / ŚMIERĆ – czerwony / szary embed
-    if "killed by" in line or "[HP: 0]" in line:
-        # Zabójstwo player vs player
+    # 4. ZABÓJSTWA / ŚMIERĆ
+    if "killed by" in line or "[HP: 0]" in line or "hit by" in line:
+        # Player vs Player
         match_pvp = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_pvp:
             victim, killer, weapon, dist = match_pvp.groups()
@@ -83,7 +79,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-        # Śmierć od zombie / Infected
+        # Player vs Zombie / Infected
         match_zombie = re.search(r'Player "([^"]+)" .*hit by Infected .* for ([\d.]+) damage \(([^)]+)\)', line)
         if match_zombie and "[HP: 0]" in line:
             victim, dmg, cause = match_zombie.groups()
@@ -94,56 +90,53 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-        # Zabójstwo AI
+        # AI kill
         match_ai = re.search(r'AI "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_ai:
             ai, killer, weapon, dist = match_ai.groups()
-            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 💀 AI {ai} zabity przez {killer} ({weapon}, {dist}m)"
+            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 🤖 AI {ai} zabity przez {killer} ({weapon}, {dist}m)"
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # 5. CHAT – różne kolory ANSI dla kanałów
-    if "[Chat" in line or "Chat:" in line:
+    # 5. CHAT – różne kolory ANSI
+    if "[Chat" in line or "Chat:" in line or "said in channel" in line:
         match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
+        if not match:
+            match = re.search(r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"', line)
         if match:
-            channel_type, player, message = match.groups()
+            channel_type = match.group(1) if len(match.groups()) == 3 else "Unknown"
+            player = match.group(2) if len(match.groups()) == 3 else match.group(1)
+            message = match.group(3) if len(match.groups()) == 3 else match.group(2)
+            
             color_map = {
-                "Global": "[32m",  # zielony
-                "Admin": "[31m",  # czerwony
-                "Team": "[34m",  # niebieski
-                "Direct": "[37m",  # szary
-                "Unknown": "[33m"  # żółty
+                "Global": "[32m",   # zielony
+                "Admin": "[31m",    # czerwony
+                "Team": "[34m",     # niebieski
+                "Direct": "[37m",   # szary
+                "Unknown": "[33m"   # żółty
             }
-            ansi_color = color_map.get(channel_type, color_map["Unknown"])
+            ansi_color = color_map.get(channel_type.strip(), color_map["Unknown"])
+            
             msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHAT_CHANNEL_MAPPING["Unknown"])
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type.strip(), CHAT_CHANNEL_MAPPING["Unknown"])
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # 6. ZNISZCZONE SAMOCHODY – czerwony ANSI
-    if "destroyed" in line.lower() and "vehicle" in line.lower():
-        match = re.search(r'Vehicle "([^"]+)" \(id=([^)]+)\) destroyed by Player "([^"]+)" \(id=([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
+    # 6. ZNISZCZONE POJAZDY – czerwony ANSI
+    if "destroyed" in line.lower() and any(x in line.lower() for x in ["vehicle", "car", "truck", "heli", "plane"]):
+        # Przykładowy regex – dostosuj, gdy zobaczysz dokładny format
+        match = re.search(r'(?:Vehicle|Car|Heli) "([^"]+)" .* destroyed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match:
-            vehicle = match.group(1)
-            v_id = match.group(2)
-            destroyer = match.group(3)
-            d_id = match.group(4)
-            weapon = match.group(5)
-            dist = match.group(6)
-            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 🚗 Pojazd {vehicle} (ID: {v_id}) zniszczony przez {destroyer} (ID: {d_id}) z {weapon} z {dist} m"
-            ch = client.get_channel(CHANNEL_IDS["kills"])  # lub inny kanał, np. admin
+            vehicle, destroyer, weapon, dist = match.groups()
+            msg = f"Data: {datetime.utcnow().date()} | Godzina: {log_time} 🚗 {vehicle} zniszczony przez {destroyer} ({weapon}, {dist}m)"
+            ch = client.get_channel(CHANNEL_IDS["kills"])  # możesz zmienić na inny kanał
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # Zapisuj nierozpoznane linie do pliku (bez wysyłania na Discord)
-    try:
-        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
-            f.write(f"{datetime.utcnow().isoformat()} | {line}\n")
-        print(f"[UNPARSED] Zapisano: {line[:100]}...")
-    except Exception as e:
-        print(f"[UNPARSED ERR] {e}")
+    # ŻADNA INNA LINIA NIE JEST WYSYŁANA NA DISCORD
+    # Tylko powyższe zdarzenia są przetwarzane

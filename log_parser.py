@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 from discord import Embed
-from config import CHANNEL_IDS
+from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed
 
 player_login_times = {}
@@ -106,6 +106,28 @@ async def process_line(bot, line: str):
         if ch:
             await ch.send(f"```ansi\n[32m{msg}[0m\n```")
         return
+
+    # 7. CHAT MESSAGES – nowy parser z podziałem na kanały i kolorami ANSI
+    if "Chat(" in line:
+        match = re.search(r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"', line)
+        if match:
+            name, channel, message = match.groups()
+            # Kolory ANSI w zależności od kanału (możesz dostosować)
+            color_codes = {
+                "Global": "[32m",  # Zielony
+                "Admin": "[34m",   # Niebieski
+                "Team": "[36m",    # Cyjan
+                "Direct": "[35m",  # Magenta
+                "Unknown": "[33m"  # Żółty
+            }
+            ansi_color = color_codes.get(channel, color_codes["Unknown"])
+            msg = f"{log_time} [{channel}] {name}: {message}"
+            # Wybierz kanał Discord na podstawie mappingu
+            discord_channel_id = CHAT_CHANNEL_MAPPING.get(channel, CHAT_CHANNEL_MAPPING["Unknown"])
+            ch = client.get_channel(discord_channel_id)
+            if ch:
+                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+            return
 
     # Jeśli nic nie złapało – wyślij do debug (jeśli włączony)
     debug_ch = client.get_channel(CHANNEL_IDS.get("debug"))

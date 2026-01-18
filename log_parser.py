@@ -12,13 +12,15 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    # Tylko do debugowania – zobaczysz wszystkie linie w konsoli Render
-    print(f"[RAW LINE] {line[:150]}...")
-
+    # Wyciągamy godzinę
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # 1. JOIN – zielony embed (już działa)
+    # Format daty: dd.mm.yyyy
+    today = datetime.utcnow()
+    date_str = today.strftime("%d.%m.%Y")
+
+    # 1. JOIN (logowanie)
     if any(kw in line for kw in ["is connected", "has connected"]) and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
@@ -27,14 +29,14 @@ async def process_line(bot, line: str):
             player_login_times[name] = datetime.utcnow()
             embed = create_connect_embed(name, "connect")
             embed.add_field(name="ID/SteamID", value=id_val, inline=True)
-            embed.set_footer(text=f"{datetime.utcnow().date()} | {log_time}")
+            embed.set_footer(text=f"{date_str} | {log_time}")
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(embed=embed)
             return
 
-    # 2. DISCONNECT – pomarańczowy embed (rozszerzony)
-    if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected"]):
+    # 2. DISCONNECT (wylogowanie) – rozszerzony warunek
+    if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected", "quit", "left"]):
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
             name = match.group(1).strip()
@@ -47,26 +49,26 @@ async def process_line(bot, line: str):
             embed = create_connect_embed(name, "disconnect")
             embed.add_field(name="ID/SteamID", value=id_val, inline=True)
             embed.add_field(name="Czas online", value=time_online, inline=True)
-            embed.set_footer(text=f"{datetime.utcnow().date()} | {log_time}")
+            embed.set_footer(text=f"{date_str} | {log_time}")
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(embed=embed)
             return
 
-    # 3. COT – biały ANSI
+    # 3. COT
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
             steamid = match.group(1)
             action = match.group(2).strip()
-            msg = f"{datetime.utcnow().date()} | {log_time} 🛡️ [COT] {steamid} | {action}"
+            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action}"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. CHAT – kolory ANSI
-    if any(kw in line for kw in ["[Chat", "Chat:", "said in channel", "global chat", "team chat"]):
+    # 4. CHAT
+    if any(kw in line for kw in ["[Chat", "Chat:", "said in channel"]):
         match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
         if match:
             channel_type, player, message = match.groups()
@@ -78,35 +80,33 @@ async def process_line(bot, line: str):
                 "Unknown": "[33m"
             }
             ansi_color = color_map.get(channel_type.strip(), color_map["Unknown"])
-            msg = f"{datetime.utcnow().date()} | {log_time} 💬 [{channel_type}] {player}: {message}"
+            msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
             discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type.strip(), CHANNEL_IDS["chat"])
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # 5. ZABÓJSTWA – czerwony / szary embed
+    # 5. ZABÓJSTWA
     if any(kw in line for kw in ["killed by", "hit by", "[HP: 0]", "DEAD"]):
-        # Player vs Player
         match_pvp = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_pvp:
             victim, killer, weapon, dist = match_pvp.groups()
             embed = create_kill_embed(victim, killer, weapon, dist)
-            embed.set_footer(text=f"{datetime.utcnow().date()} | {log_time}")
+            embed.set_footer(text=f"{date_str} | {log_time}")
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(embed=embed)
             return
 
-        # Death by zombie
         match_zombie = re.search(r'Player "([^"]+)" .*hit by Infected .* for ([\d.]+) damage \(([^)]+)\)', line)
         if match_zombie and "[HP: 0]" in line:
             victim, dmg, cause = match_zombie.groups()
             embed = create_death_embed(victim, f"Zombie ({cause}) za {dmg} dmg")
-            embed.set_footer(text=f"{datetime.utcnow().date()} | {log_time}")
+            embed.set_footer(text=f"{date_str} | {log_time}")
             ch = client.get_channel(CHANNEL_IDS["deaths"])
             if ch:
                 await ch.send(embed=embed)
             return
 
-    # ŻADNA INNA LINIA NIE JEST WYSYŁANA – zero spamu
+    # ŻADNA INNA LINIA NIE JEST WYSYŁANA

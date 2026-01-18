@@ -69,20 +69,33 @@ async def process_line(bot, line: str):
                 await ch.send(f"```{msg}```")
             return
 
-    # 4. COT (bez zmian)
+    # 4. COT – dopasowane do Twojego formatu .ADM
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
             steamid = match.group(1)
             action = match.group(2).strip()
             guid = match.group(3) or "brak"
-            msg = f"{date_str} | {log_time} ADMIN | [COT] {steamid} | {action} [guid={guid}]"
+            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 5. AUTO SAVE (bez zmian)
+    # NOWOŚĆ: Hit / Death z .ADM – żółty/ czerwony
+    if "hit by" in line or "[HP: 0]" in line:
+        match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
+        if match_hit:
+            name, part, dmg, cause = match_hit.groups()
+            hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
+            hp = hp_match.group(1) if hp_match else "nieznane"
+            msg = f"{date_str} | {log_time} ⚠️ {name} trafiony zombie w {part} za {dmg} dmg (HP: {hp})"
+            ch = client.get_channel(CHANNEL_IDS["deaths"])
+            if ch:
+                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+            return
+
+    # AUTO SAVE (bez zmian)
     if "CHAR_DEBUG - SAVE" in line:
         msg = f"{date_str} | {log_time} 💾 Autozapis gracza zakończony"
         ch = client.get_channel(CHANNEL_IDS["admin"])
@@ -90,7 +103,7 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n[32m{msg}[0m\n```")
         return
 
-    # 6. CHAT MESSAGES (bez zmian)
+    # CHAT MESSAGES (bez zmian)
     if "Chat(" in line:
         patterns = [
             r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"',
@@ -124,7 +137,7 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
                 return
 
-    # Zapisuj nierozpoznane linie do pliku (bez wysyłania na Discord)
+    # Zapisuj nierozpoznane linie do pliku
     try:
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

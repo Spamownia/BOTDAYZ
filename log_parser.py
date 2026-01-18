@@ -12,15 +12,14 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    # Tylko do debugowania – usuń później, jeśli chcesz czystą konsolę
+    # Tylko do debugowania – zobaczysz wszystkie linie w konsoli Render
     print(f"[RAW LINE] {line[:150]}...")
 
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # 1. JOIN – zielony embed
-    if any(kw in line.lower() for kw in ["is connected", "has connected", "joined the server"]) and 'Player "' in line:
-        # Rozszerzony regex – łapie steamID i id=
+    # 1. JOIN – zielony embed (już działa)
+    if any(kw in line for kw in ["is connected", "has connected"]) and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
             name = match.group(1).strip()
@@ -34,7 +33,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 2. DISCONNECT – pomarańczowy embed
+    # 2. DISCONNECT – pomarańczowy embed (rozszerzony)
     if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected"]):
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
@@ -56,7 +55,6 @@ async def process_line(bot, line: str):
 
     # 3. COT – biały ANSI
     if "[COT]" in line:
-        # Bardzo luźny match – łapie prawie każdą linię z [COT]
         match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
             steamid = match.group(1)
@@ -69,12 +67,9 @@ async def process_line(bot, line: str):
 
     # 4. CHAT – kolory ANSI
     if any(kw in line for kw in ["[Chat", "Chat:", "said in channel", "global chat", "team chat"]):
-        # Luźny regex – dopasuj później, gdy zobaczysz dokładny format
-        match = re.search(r'(?:Chat\(|Player "([^"]+)" said in )([^\:]+):? "(.+)"', line)
+        match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
         if match:
-            player = match.group(1) or "nieznany"
-            channel_type = match.group(2).strip()
-            message = match.group(3)
+            channel_type, player, message = match.groups()
             color_map = {
                 "Global": "[32m",
                 "Admin": "[31m",
@@ -82,9 +77,9 @@ async def process_line(bot, line: str):
                 "Direct": "[37m",
                 "Unknown": "[33m"
             }
-            ansi_color = color_map.get(channel_type, color_map["Unknown"])
+            ansi_color = color_map.get(channel_type.strip(), color_map["Unknown"])
             msg = f"{datetime.utcnow().date()} | {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type.strip(), CHANNEL_IDS["chat"])
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
@@ -115,4 +110,3 @@ async def process_line(bot, line: str):
             return
 
     # ŻADNA INNA LINIA NIE JEST WYSYŁANA – zero spamu
-    # Jeśli chcesz zobaczyć, co przychodzi, zostaw tylko print powyżej

@@ -1,10 +1,14 @@
 import re
 from datetime import datetime
+import os
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed
 
 player_login_times = {}
+
+# Plik do zapisywania nierozpoznanych linii (debug bez spamowania Discorda)
+UNPARSED_LOG = "unparsed_lines.log"
 
 async def process_line(bot, line: str):
     client = bot
@@ -17,7 +21,7 @@ async def process_line(bot, line: str):
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # 1. JOIN (is connected / has connected)
+    # 1. JOIN / CONNECT
     if any(keyword in line for keyword in ["is connected", "has connected"]) and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
         if not match:
@@ -34,7 +38,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 2. DISCONNECT (jeśli się pojawi – przetestuj wyjście)
+    # 2. DISCONNECT
     if "has been disconnected" in line:
         match = re.search(r'Player "([^"]+)"\(.*?(?:id|steamID)=([^)]+)\) has been disconnected', line)
         if match:
@@ -53,7 +57,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 3. COT – biały ANSI
+    # 3. COT (Community Online Tools)
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
@@ -79,7 +83,7 @@ async def process_line(bot, line: str):
 
     # 5. KILL / DEATH PLAYER
     if "killed by" in line and "DEAD" in line:
-        # Kill player vs player
+        # PvP
         match_pvp = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_pvp:
             victim, killer, weapon, dist = match_pvp.groups()
@@ -89,7 +93,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-        # Kill AI lub inne
+        # AI kill
         match_ai = re.search(r'AI "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_ai:
             ai, killer, weapon, dist = match_ai.groups()
@@ -99,7 +103,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # 6. SAVE GRACZA (CHAR_DEBUG - SAVE) – opcjonalnie zielony komunikat
+    # 6. AUTO SAVE
     if "CHAR_DEBUG - SAVE" in line:
         msg = f"{log_time} 💾 Autozapis gracza zakończony"
         ch = client.get_channel(CHANNEL_IDS["admin"])
@@ -107,33 +111,48 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n[32m{msg}[0m\n```")
         return
 
-    # 7. CHAT MESSAGES – nowy parser z podziałem na kanały i kolorami ANSI
+    # 7. CHAT MESSAGES
     if "Chat(" in line:
-        match = re.search(r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"', line)
-        if match:
-            name, channel, message = match.groups()
-            # Kolory ANSI w zależności od kanału (możesz dostosować)
-            color_codes = {
-                "Global": "[32m",  # Zielony
-                "Admin": "[34m",   # Niebieski
-                "Team": "[36m",    # Cyjan
-                "Direct": "[35m",  # Magenta
-                "Unknown": "[33m"  # Żółty
-            }
-            ansi_color = color_codes.get(channel, color_codes["Unknown"])
-            msg = f"{log_time} [{channel}] {name}: {message}"
-            # Wybierz kanał Discord na podstawie mappingu
-            discord_channel_id = CHAT_CHANNEL_MAPPING.get(channel, CHAT_CHANNEL_MAPPING["Unknown"])
-            ch = client.get_channel(discord_channel_id)
-            if ch:
-                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
-            return
+        # Przykładowe formaty, które najczęściej występują w DayZ
+        patterns = [
+            r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"',                    # klasyczny
+            r'Chat\("([^"]+)"\): "([^"]+)"',                               # bez kanału
+            r'Player "([^"]+)" said in channel ([^:]+): "([^"]+)"'        # alternatywny
+        ]
 
-    # Jeśli nic nie złapało – wyślij do debug (jeśli włączony)
-    debug_ch = client.get_channel(CHANNEL_IDS.get("debug"))
-    if debug_ch:
-        try:
-            short = line[:1900] + "..." if len(line) > 1900 else line
-            await debug_ch.send(f"```log\n{short}\n```")
-        except:
-            pass
+        for pattern in patterns:
+            match = re.search(pattern, line)
+            if match:
+                if len(match.groups()) == 3:
+                    name, channel, message = match.groups()
+                else:  # bez kanału
+                    name, message = match.groups()
+                    channel = "Unknown"
+
+                color_codes = {
+                    "Global":   "[32m",  # zielony
+                    "Team":     "[36m",  # cyjan
+                    "Direct":   "[35m",  # magenta
+                    "Admin":    "[34m",  # niebieski
+                    "Unknown":  "[33m"   # żółty
+                }
+                ansi_color = color_codes.get(channel.strip(), color_codes["Unknown"])
+                
+                msg = f"{log_time} [{channel.strip()}] {name}: {message}"
+                
+                discord_channel_id = CHAT_CHANNEL_MAPPING.get(channel.strip(), CHAT_CHANNEL_MAPPING["Unknown"])
+                ch = client.get_channel(discord_channel_id)
+                if ch:
+                    await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+                return
+
+    # ==============================================
+    # Jeśli żadna reguła nie pasuje → zapisujemy do pliku (bez wysyłania na Discord!)
+    # ==============================================
+    try:
+        timestamp = datetime.utcnow().isoformat()
+        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{timestamp} | {line}\n")
+        print(f"[UNPARSED → plik] {line[:120]}...")
+    except Exception as e:
+        print(f"[BŁĄD ZAPISU UNPARSED] {e}")

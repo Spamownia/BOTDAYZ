@@ -25,7 +25,7 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Dodany do kolejki logowania – zielony
+    # 1. Dodany do kolejki logowania – zielony ANSI
     if "[Login]:" in line and "Adding player" in line:
         match = re.search(r'Adding player ([^ ]+) \((\d+)\) to login queue', line)
         if match:
@@ -37,20 +37,20 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Połączono – zielony (dopasowane do .ADM id=guid)
+    # 2. Połączono – zielony ANSI (dopasowane do .ADM – zarówno steamID, jak i id=guid)
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
-            player_login_times[name] = datetime.utcnow()
+            player_login_times[name] = datetime.utcnow()  # zapisujemy nick do obliczenia czasu online
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 3. Rozłączono – czerwony (dopasowane do .ADM)
+    # 3. Rozłączono – czerwony ANSI + czas online
     if "has been disconnected" in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) has been disconnected', line)
         if match:
@@ -76,7 +76,7 @@ async def process_line(bot, line: str):
             steamid = match.group(1)
             action = match.group(2).strip()
             guid = match.group(3) or "brak"
-            msg = f"{date_str} | {log_time} ADMIN | [COT] {steamid} | {action} [guid={guid}]"
+            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")

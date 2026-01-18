@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-from utils import create_connect_embed, create_kill_embed, create_death_embed
+from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 
 player_login_times = {}
 
@@ -39,20 +39,20 @@ async def process_line(bot, line: str):
 
     # 2. Połączono – zielony
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
         if match:
             name = match.group(1).strip()
-            steamid = match.group(2)
+            id_val = match.group(2)
             player_login_times[name] = datetime.utcnow()
-            msg = f"🟢 {date_str} | {log_time} Połączono → {name} (SteamID: {steamid})"
+            msg = f"🟢 {date_str} | {log_time} Połączono → {name} (SteamID: {id_val})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```{msg}```")
             return
 
-    # 3. Rozłączono – czerwony + czas online
-    if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected", "quit", "left"]):
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\)', line)
+    # 3. Rozłączono – czerwony + czas online (jeśli jest obliczony, nie "nieznany")
+    if "has been disconnected" in line or "disconnected" in line.lower():
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
@@ -69,7 +69,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```{msg}```")
             return
 
-    # 4. COT – dopasowane do Twojego formatu .ADM
+    # 4. COT – biały ANSI (bez zmian, już działa)
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
@@ -82,7 +82,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # NOWOŚĆ: Hit / Death z .ADM – żółty/ czerwony
+    # 5. Hit / Death – żółty/czerwony (bez zmian, już działa)
     if "hit by" in line or "[HP: 0]" in line:
         match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
         if match_hit:
@@ -103,39 +103,25 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n[32m{msg}[0m\n```")
         return
 
-    # CHAT MESSAGES (bez zmian)
-    if "Chat(" in line:
-        patterns = [
-            r'Chat\("([^"]+)"\)\(([^)]+)\): "([^"]+)"',
-            r'Chat\("([^"]+)"\): "([^"]+)"',
-            r'Player "([^"]+)" said in channel ([^:]+): "([^"]+)"'
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, line)
-            if match:
-                if len(match.groups()) == 3:
-                    name, channel, message = match.groups()
-                else:
-                    name, message = match.groups()
-                    channel = "Unknown"
-
-                color_codes = {
-                    "Global":   "[32m",
-                    "Team":     "[36m",
-                    "Direct":   "[35m",
-                    "Admin":    "[34m",
-                    "Unknown":  "[33m"
-                }
-                ansi_color = color_codes.get(channel.strip(), color_codes["Unknown"])
-                
-                msg = f"{date_str} | {log_time} [{channel.strip()}] {name}: {message}"
-                
-                discord_channel_id = CHAT_CHANNEL_MAPPING.get(channel.strip(), CHAT_CHANNEL_MAPPING["Unknown"])
-                ch = client.get_channel(discord_channel_id)
-                if ch:
-                    await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
-                return
+    # CHAT (bez zmian)
+    if "[Chat -" in line:
+        match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
+        if match:
+            channel_type, player, message = match.groups()
+            color_map = {
+                "Global": "[32m",
+                "Admin": "[31m",
+                "Team": "[34m",
+                "Direct": "[37m",
+                "Unknown": "[33m"
+            }
+            ansi_color = color_map.get(channel_type.strip(), color_map["Unknown"])
+            msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type.strip(), CHANNEL_IDS["chat"])
+            ch = client.get_channel(discord_ch_id)
+            if ch:
+                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+            return
 
     # Zapisuj nierozpoznane linie do pliku
     try:

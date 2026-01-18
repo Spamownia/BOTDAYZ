@@ -12,14 +12,16 @@ async def process_line(bot, line: str):
     if not line:
         return
 
+    # Tylko do debugowania – usuń później, jeśli chcesz czystą konsolę
+    print(f"[RAW LINE] {line[:150]}...")
+
     time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
-    # 1. JOIN (logowanie) – zielony embed
-    if any(x in line for x in ["is connected", "has connected", "joined the server"]) and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\(steamID=(\d+)\) is connected', line)
-        if not match:
-            match = re.search(r'Player "([^"]+)"\(id=([^)]+)\) (?:is|has) connected', line)
+    # 1. JOIN – zielony embed
+    if any(kw in line.lower() for kw in ["is connected", "has connected", "joined the server"]) and 'Player "' in line:
+        # Rozszerzony regex – łapie steamID i id=
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
@@ -32,9 +34,9 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 2. DISCONNECT (wylogowanie) – pomarańczowy embed
-    if any(x in line.lower() for x in ["disconnected", "has quit", "left the server", "logged out"]):
-        match = re.search(r'Player "([^"]+)"\(.*?(?:steamID|id)=([^)]+)\)', line)
+    # 2. DISCONNECT – pomarańczowy embed
+    if any(kw in line.lower() for kw in ["disconnected", "has quit", "left the server", "logged out", "has been disconnected"]):
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=(\d+)\)', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
@@ -52,21 +54,44 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 3. COT (akcje admina) – biały ANSI
+    # 3. COT – biały ANSI
     if "[COT]" in line:
-        match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
+        # Bardzo luźny match – łapie prawie każdą linię z [COT]
+        match = re.search(r'\[COT\] (\d{17,}): (.+)', line)
         if match:
             steamid = match.group(1)
             action = match.group(2).strip()
-            guid = match.group(3) or "brak"
-            msg = f"{datetime.utcnow().date()} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
+            msg = f"{datetime.utcnow().date()} | {log_time} 🛡️ [COT] {steamid} | {action}"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. ZABÓJSTWA / ŚMIERĆ
-    if "killed by" in line or "[HP: 0]" in line or "hit by" in line:
+    # 4. CHAT – kolory ANSI
+    if any(kw in line for kw in ["[Chat", "Chat:", "said in channel", "global chat", "team chat"]):
+        # Luźny regex – dopasuj później, gdy zobaczysz dokładny format
+        match = re.search(r'(?:Chat\(|Player "([^"]+)" said in )([^\:]+):? "(.+)"', line)
+        if match:
+            player = match.group(1) or "nieznany"
+            channel_type = match.group(2).strip()
+            message = match.group(3)
+            color_map = {
+                "Global": "[32m",
+                "Admin": "[31m",
+                "Team": "[34m",
+                "Direct": "[37m",
+                "Unknown": "[33m"
+            }
+            ansi_color = color_map.get(channel_type, color_map["Unknown"])
+            msg = f"{datetime.utcnow().date()} | {log_time} 💬 [{channel_type}] {player}: {message}"
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
+            ch = client.get_channel(discord_ch_id)
+            if ch:
+                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+            return
+
+    # 5. ZABÓJSTWA – czerwony / szary embed
+    if any(kw in line for kw in ["killed by", "hit by", "[HP: 0]", "DEAD"]):
         # Player vs Player
         match_pvp = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_pvp:
@@ -78,7 +103,7 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-        # Player vs Zombie
+        # Death by zombie
         match_zombie = re.search(r'Player "([^"]+)" .*hit by Infected .* for ([\d.]+) damage \(([^)]+)\)', line)
         if match_zombie and "[HP: 0]" in line:
             victim, dmg, cause = match_zombie.groups()
@@ -89,32 +114,5 @@ async def process_line(bot, line: str):
                 await ch.send(embed=embed)
             return
 
-    # 5. CHAT – różne kolory ANSI
-    if "[Chat" in line or "Chat:" in line:
-        match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
-        if match:
-            channel_type, player, message = match.groups()
-            color_map = {
-                "Global": "[32m",   # zielony
-                "Admin": "[31m",    # czerwony
-                "Team": "[34m",     # niebieski
-                "Direct": "[37m",   # szary
-                "Unknown": "[33m"   # żółty
-            }
-            ansi_color = color_map.get(channel_type.strip(), color_map["Unknown"])
-            msg = f"{datetime.utcnow().date()} | {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type.strip(), CHAT_CHANNEL_MAPPING["Unknown"])
-            ch = client.get_channel(discord_ch_id)
-            if ch:
-                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
-            return
-
-    # 6. ZNISZCZONE POJAZDY – czerwony ANSI
-    if "destroyed" in line.lower() and any(x in line.lower() for x in ["vehicle", "car", "truck", "uaz", "gyrocopter", "plane"]):
-        msg = f"{datetime.utcnow().date()} | {log_time} 🚗 Pojazd zniszczony: {line[:150]}..."
-        ch = client.get_channel(CHANNEL_IDS["kills"])
-        if ch:
-            await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-        return
-
-    # ŻADNA INNA LINIA NIE JEST WYSYŁANA – reszta ignorowana
+    # ŻADNA INNA LINIA NIE JEST WYSYŁANA – zero spamu
+    # Jeśli chcesz zobaczyć, co przychodzi, zostaw tylko print powyżej

@@ -1,5 +1,6 @@
 from ftplib import FTP
 import time
+import json
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 class DayZLogWatcher:
@@ -9,7 +10,31 @@ class DayZLogWatcher:
         self.last_adm = None
         self.last_rpt_pos = 0
         self.last_adm_pos = 0
+        self._load_last_positions()
         print("[FTP DEBUG] Inicjalizacja – czyta .RPT + .ADM")
+
+    def _load_last_positions(self):
+        try:
+            with open('last_positions.json', 'r') as f:
+                data = json.load(f)
+                self.last_rpt = data.get('last_rpt')
+                self.last_adm = data.get('last_adm')
+                self.last_rpt_pos = data.get('last_rpt_pos', 0)
+                self.last_adm_pos = data.get('last_adm_pos', 0)
+                print("[FTP DEBUG] Załadowano ostatnie pozycje z pliku")
+        except FileNotFoundError:
+            print("[FTP DEBUG] Brak pliku z pozycjami – start od zera")
+
+    def _save_last_positions(self):
+        data = {
+            'last_rpt': self.last_rpt,
+            'last_adm': self.last_adm,
+            'last_rpt_pos': self.last_rpt_pos,
+            'last_adm_pos': self.last_adm_pos
+        }
+        with open('last_positions.json', 'w') as f:
+            json.dump(data, f)
+        print("[FTP DEBUG] Zapisano pozycje do pliku")
 
     def connect_and_debug(self):
         if self.ftp:
@@ -73,17 +98,22 @@ class DayZLogWatcher:
         contents = []
 
         if latest_rpt:
-            contents.append(self._get_content(latest_rpt, 'rpt', self.last_rpt, self.last_rpt_pos))
+            contents.append(self._get_content(latest_rpt, 'rpt'))
 
         if latest_adm:
-            contents.append(self._get_content(latest_adm, 'adm', self.last_adm, self.last_adm_pos))
+            contents.append(self._get_content(latest_adm, 'adm'))
+
+        self._save_last_positions()  # Zapisz pozycje po odczycie
 
         return "\n".join(contents)
 
-    def _get_content(self, filename, file_type, last_file, last_pos):
+    def _get_content(self, filename, file_type):
         try:
             size = self.ftp.size(filename)
             print(f"[FTP DEBUG] {filename} → {size:,} bajtów")
+
+            last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
+            last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
 
             if filename != last_file:
                 print(f"[FTP DEBUG] Nowy plik {file_type.upper()} → start od końca")

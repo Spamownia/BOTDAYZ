@@ -1,7 +1,10 @@
 from ftplib import FTP
 import time
 import json
+import os
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
+
+LAST_POSITIONS_FILE = 'last_positions.json'
 
 class DayZLogWatcher:
     def __init__(self):
@@ -14,16 +17,19 @@ class DayZLogWatcher:
         print("[FTP DEBUG] Inicjalizacja – czyta .RPT + .ADM")
 
     def _load_last_positions(self):
-        try:
-            with open('last_positions.json', 'r') as f:
-                data = json.load(f)
-                self.last_rpt = data.get('last_rpt')
-                self.last_adm = data.get('last_adm')
-                self.last_rpt_pos = data.get('last_rpt_pos', 0)
-                self.last_adm_pos = data.get('last_adm_pos', 0)
-                print("[FTP DEBUG] Załadowano ostatnie pozycje z pliku")
-        except FileNotFoundError:
-            print("[FTP DEBUG] Brak pliku z pozycjami – start od zera")
+        if os.path.exists(LAST_POSITIONS_FILE):
+            try:
+                with open(LAST_POSITIONS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.last_rpt = data.get('last_rpt')
+                    self.last_adm = data.get('last_adm')
+                    self.last_rpt_pos = data.get('last_rpt_pos', 0)
+                    self.last_adm_pos = data.get('last_adm_pos', 0)
+                    print(f"[FTP DEBUG] Załadowano pozycje: RPT={self.last_rpt_pos}, ADM={self.last_adm_pos}")
+            except Exception as e:
+                print(f"[FTP DEBUG] Błąd ładowania pozycji: {e}")
+        else:
+            print("[FTP DEBUG] Brak pliku pozycji – start od zera")
 
     def _save_last_positions(self):
         data = {
@@ -32,9 +38,12 @@ class DayZLogWatcher:
             'last_rpt_pos': self.last_rpt_pos,
             'last_adm_pos': self.last_adm_pos
         }
-        with open('last_positions.json', 'w') as f:
-            json.dump(data, f)
-        print("[FTP DEBUG] Zapisano pozycje do pliku")
+        try:
+            with open(LAST_POSITIONS_FILE, 'w') as f:
+                json.dump(data, f)
+            print("[FTP DEBUG] Zapisano aktualne pozycje do pliku")
+        except Exception as e:
+            print(f"[FTP DEBUG] Błąd zapisu pozycji: {e}")
 
     def connect_and_debug(self):
         if self.ftp:
@@ -98,12 +107,18 @@ class DayZLogWatcher:
         contents = []
 
         if latest_rpt:
-            contents.append(self._get_content(latest_rpt, 'rpt'))
+            content_rpt = self._get_content(latest_rpt, 'rpt')
+            if content_rpt:
+                contents.append(content_rpt)
 
         if latest_adm:
-            contents.append(self._get_content(latest_adm, 'adm'))
+            content_adm = self._get_content(latest_adm, 'adm')
+            if content_adm:
+                contents.append(content_adm)
 
-        self._save_last_positions()  # Zapisz pozycje po odczycie
+        # Zapisz pozycje TYLKO jeśli coś przeczytaliśmy
+        if contents:
+            self._save_last_positions()
 
         return "\n".join(contents)
 
@@ -120,6 +135,7 @@ class DayZLogWatcher:
                 last_pos = max(0, size - 5_000_000)
 
             if last_pos >= size:
+                print(f"[FTP DEBUG] Brak nowych danych w {filename}")
                 return ""
 
             data = bytearray()
@@ -127,15 +143,16 @@ class DayZLogWatcher:
 
             text = data.decode('utf-8', errors='replace')
             if text and '\n' in text:
-                text = text[text.index('\n') + 1:]
+                text = text[text.index('\n') + 1:]  # pomijamy niepełną linię na początku
 
             lines = len(text.splitlines())
-            print(f"[FTP DEBUG] Pobrano {lines} linii z {filename}")
+            print(f"[FTP DEBUG] Pobrano {lines} nowych linii z {filename}")
 
             if text:
                 preview = text[:300].replace('\n', ' | ')
                 print(f"[FTP DEBUG PREVIEW {file_type.upper()}] {preview}...")
 
+            # Aktualizuj pozycję
             if file_type == 'rpt':
                 self.last_rpt = filename
                 self.last_rpt_pos = size

@@ -65,7 +65,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # Reszta kodu bez zmian (COT, hit, chat, auto-save)
+    # 4. COT – biały ANSI
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
@@ -78,6 +78,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
+    # 5. Hit / Death – żółty/czerwony
     if "hit by" in line or "[HP: 0]" in line:
         match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
         if match_hit:
@@ -92,13 +93,15 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-    if "CHAR_DEBUG - SAVE" in line:
-        msg = f"{date_str} | {log_time} 💾 Autozapis gracza zakończony"
-        ch = client.get_channel(CHANNEL_IDS["admin"])
-        if ch:
-            await ch.send(f"```ansi\n[32m{msg}[0m\n```")
-        return
+    # AUTO SAVE – WYŁĄCZONY (zakomentowany)
+    # if "CHAR_DEBUG - SAVE" in line:
+    #     msg = f"{date_str} | {log_time} 💾 Autozapis gracza zakończony"
+    #     ch = client.get_channel(CHANNEL_IDS["admin"])
+    #     if ch:
+    #         await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+    #     return
 
+    # CHAT
     if "[Chat -" in line:
         match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
         if match:

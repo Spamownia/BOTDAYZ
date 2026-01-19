@@ -49,20 +49,22 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 3. Rozłączono – czerwony ANSI + czas online
+    # 3. Rozłączono – czerwony ANSI + czas online (poprawiona wersja)
     if "has been disconnected" in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) has been disconnected', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
+            
             time_online = "nieznany"
             if name in player_login_times:
                 delta = datetime.utcnow() - player_login_times[name]
                 minutes = int(delta.total_seconds() // 60)
-                seconds = int(delta.seconds % 60)
+                seconds = int(delta.total_seconds() % 60)
                 time_online = f"{minutes} min {seconds} s"
                 del player_login_times[name]
-            msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} ({id_val}) → {time_online}"
+            
+            msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} (ID: {id_val}) → {time_online}"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
@@ -81,28 +83,59 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 5. Hit / Death – żółty/czerwony
-    if "hit by" in line or "[HP: 0]" in line:
-        match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
+    # 5. Obrażenia / Hit / Death / Kill – pełny parser na osobny kanał "deaths"
+    if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
+        # Hit / obrażenia
+        match_hit = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by (Infected|Player "([^"]+)") .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
         if match_hit:
-            name, part, dmg, cause = match_hit.groups()
+            victim = match_hit.group(1)
+            attacker_type = match_hit.group(2)
+            attacker_name = match_hit.group(3) if attacker_type == "Player" else "Infected"
+            part = match_hit.group(4)
+            dmg = match_hit.group(5)
+            ammo_type = match_hit.group(6)
+            weapon = match_hit.group(7)
+            dist = match_hit.group(8)
+
             hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
             hp = hp_match.group(1) if hp_match else "nieznane"
-            color = "[31m" if hp == "0" else "[33m"
-            emoji = "☠️" if hp == "0" else "⚠️"
-            msg = f"{date_str} | {log_time} {emoji} {name} trafiony zombie w {part} za {dmg} dmg (HP: {hp})"
+            is_dead = " (ŚMIERĆ)" if hp == "0" or "DEAD" in line else ""
+
+            color = "[31m" if "DEAD" in line or hp == "0" else "[33m"
+            emoji = "☠️" if "DEAD" in line or hp == "0" else "⚠️"
+
+            msg = f"{date_str} | {log_time} {emoji} {victim}{is_dead} trafiony przez {attacker_name} w {part} za {dmg} dmg ({ammo_type}) z {weapon} z {dist}m (HP: {hp})"
             ch = client.get_channel(CHANNEL_IDS["deaths"])
             if ch:
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-    # AUTO SAVE – WYŁĄCZONY (zakomentowany)
-    # if "CHAR_DEBUG - SAVE" in line:
-    #     msg = f"{date_str} | {log_time} 💾 Autozapis gracza zakończony"
-    #     ch = client.get_channel(CHANNEL_IDS["admin"])
-    #     if ch:
-    #         await ch.send(f"```ansi\n[32m{msg}[0m\n```")
-    #     return
+        # Killed / śmierć
+        match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by (Infected|Player "([^"]+)") .* with ([\w ]+) from ([\d.]+) meters', line)
+        if match_kill:
+            victim = match_kill.group(1)
+            attacker_type = match_kill.group(2)
+            attacker_name = match_kill.group(3) if attacker_type == "Player" else "Infected"
+            weapon = match_kill.group(4)
+            dist = match_kill.group(5)
+
+            msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker_name} z {weapon} z {dist}m"
+            ch = client.get_channel(CHANNEL_IDS["deaths"])
+            if ch:
+                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+            return
+
+        # CHAR_DEBUG - KILL (z RPT)
+        if "CHAR_DEBUG - KILL" in line:
+            match = re.search(r'player (\w+) \(dpnid = (\d+)\)', line)
+            if match:
+                player = match.group(1)
+                dpnid = match.group(2)
+                msg = f"{date_str} | {log_time} ☠️ Śmierć: {player} (dpnid: {dpnid})"
+                ch = client.get_channel(CHANNEL_IDS["deaths"])
+                if ch:
+                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+                return
 
     # CHAT
     if "[Chat -" in line:
@@ -126,9 +159,8 @@ async def process_line(bot, line: str):
 
     # Zapisuj nierozpoznane linie do pliku
     try:
-        unparsed_log = "unparsed_lines.log"
         timestamp = datetime.utcnow().isoformat()
-        with open(unparsed_log, "a", encoding="utf-8") as f:
+        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
             f.write(f"{timestamp} | {line}\n")
         print(f"[UNPARSED → plik] {line[:120]}...")
     except Exception as e:

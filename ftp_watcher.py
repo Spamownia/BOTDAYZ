@@ -5,9 +5,11 @@ from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
+        self.last_rpt = None
         self.last_adm = None
+        self.last_rpt_pos = 0
         self.last_adm_pos = 0
-        print("[FTP DEBUG] Inicjalizacja – czyta TYLKO .ADM")
+        print("[FTP DEBUG] Inicjalizacja – czyta .RPT + .ADM")
 
     def connect_and_debug(self):
         if self.ftp:
@@ -15,6 +17,7 @@ class DayZLogWatcher:
                 self.ftp.voidcmd("NOOP")
                 return True
             except:
+                print("[FTP DEBUG] Stare połączenie padło")
                 self.ftp = None
 
         try:
@@ -31,68 +34,86 @@ class DayZLogWatcher:
             self.ftp = None
             return False
 
-    def get_latest_adm(self):
+    def get_latest_files(self):
         if not self.connect_and_debug():
-            return None
+            return None, None
 
         try:
             files_lines = []
             self.ftp.dir(files_lines.append)
 
+            rpt_files = []
             adm_files = []
+
             for line in files_lines:
                 parts = line.split()
                 if len(parts) >= 9:
                     filename = ' '.join(parts[8:])
-                    if filename.lower().endswith('.adm'):
+                    if filename.lower().endswith('.rpt'):
+                        rpt_files.append(filename)
+                    elif filename.lower().endswith('.adm'):
                         adm_files.append(filename)
 
-            if not adm_files:
-                print("[FTP DEBUG] Brak plików .ADM!")
-                print("[FTP DEBUG] Przykładowe pliki:", "\n".join(files_lines[:10]))
-                return None
+            latest_rpt = max(rpt_files) if rpt_files else None
+            latest_adm = max(adm_files) if adm_files else None
 
-            latest = max(adm_files)
-            print(f"[FTP DEBUG] Najnowszy .ADM: {latest}")
-            return latest
+            print(f"[FTP DEBUG] Najnowszy .RPT: {latest_rpt}")
+            print(f"[FTP DEBUG] Najnowszy .ADM: {latest_adm}")
+
+            return latest_rpt, latest_adm
         except Exception as e:
             print(f"[FTP DEBUG] Błąd listowania: {e}")
-            return None
+            return None, None
 
     def get_new_content(self):
-        latest_adm = self.get_latest_adm()
-        if not latest_adm:
+        latest_rpt, latest_adm = self.get_latest_files()
+        if not latest_rpt and not latest_adm:
             return ""
 
+        contents = []
+
+        if latest_rpt:
+            contents.append(self._get_content(latest_rpt, 'rpt', self.last_rpt, self.last_rpt_pos))
+
+        if latest_adm:
+            contents.append(self._get_content(latest_adm, 'adm', self.last_adm, self.last_adm_pos))
+
+        return "\n".join(contents)
+
+    def _get_content(self, filename, file_type, last_file, last_pos):
         try:
-            size = self.ftp.size(latest_adm)
-            print(f"[FTP DEBUG] {latest_adm} → {size:,} bajtów")
+            size = self.ftp.size(filename)
+            print(f"[FTP DEBUG] {filename} → {size:,} bajtów")
 
-            if latest_adm != self.last_adm:
-                print("[FTP DEBUG] Nowy plik .ADM → start od końca")
-                self.last_adm = latest_adm
-                self.last_adm_pos = max(0, size - 5_000_000)
+            if filename != last_file:
+                print(f"[FTP DEBUG] Nowy plik {file_type.upper()} → start od końca")
+                last_pos = max(0, size - 5_000_000)
 
-            if self.last_adm_pos >= size:
+            if last_pos >= size:
                 return ""
 
             data = bytearray()
-            self.ftp.retrbinary(f'RETR {latest_adm}', data.extend, rest=self.last_adm_pos)
+            self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_pos)
 
             text = data.decode('utf-8', errors='replace')
             if text and '\n' in text:
                 text = text[text.index('\n') + 1:]
 
-            self.last_adm_pos = size
-
             lines = len(text.splitlines())
-            print(f"[FTP DEBUG] Pobrano {lines} linii z .ADM")
+            print(f"[FTP DEBUG] Pobrano {lines} linii z {filename}")
 
             if text:
                 preview = text[:300].replace('\n', ' | ')
-                print(f"[FTP DEBUG PREVIEW ADM] {preview}...")
+                print(f"[FTP DEBUG PREVIEW {file_type.upper()}] {preview}...")
+
+            if file_type == 'rpt':
+                self.last_rpt = filename
+                self.last_rpt_pos = size
+            else:
+                self.last_adm = filename
+                self.last_adm_pos = size
 
             return text
         except Exception as e:
-            print(f"[FTP DEBUG] Błąd pobierania .ADM: {e}")
+            print(f"[FTP DEBUG] Błąd pobierania {filename}: {e}")
             return ""

@@ -7,6 +7,9 @@ from utils import create_connect_embed, create_kill_embed, create_death_embed, c
 
 player_login_times = {}
 
+# Plik do zapisywania nierozpoznanych linii (debug bez spamowania Discorda)
+UNPARSED_LOG = "unparsed_lines.log"
+
 async def process_line(bot, line: str):
     client = bot
     line = line.strip()
@@ -121,7 +124,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # Zapisuj nierozpoznane linie do pliku – teraz bez globalnej zmiennej
+    # Zapisuj nierozpoznane linie do pliku
     try:
         unparsed_log = "unparsed_lines.log"
         timestamp = datetime.utcnow().isoformat()

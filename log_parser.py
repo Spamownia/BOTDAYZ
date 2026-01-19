@@ -37,13 +37,13 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Połączono – zielony ANSI (dopasowane do .ADM – zarówno steamID, jak i id=guid)
+    # 2. Połączono – zielony ANSI (obsługuje zarówno steamID= jak i id= z .ADM)
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
         if match:
             name = match.group(1).strip()
             id_val = match.group(2)
-            player_login_times[name] = datetime.utcnow()  # zapisujemy nick do obliczenia czasu online
+            player_login_times[name] = datetime.utcnow()
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
@@ -69,7 +69,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # 4. COT – biały ANSI (bez zmian)
+    # 4. COT – biały ANSI
     if "[COT]" in line:
         match = re.search(r'\[COT\] (\d{17,}): (.+?)(?: \[guid=([^]]+)\])?$', line)
         if match:
@@ -82,7 +82,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 5. Hit / Death – żółty/czerwony (bez zmian)
+    # 5. Hit / Death – żółty/czerwony
     if "hit by" in line or "[HP: 0]" in line:
         match_hit = re.search(r'Player "([^"]+)" .*hit by Infected into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)', line)
         if match_hit:
@@ -97,7 +97,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-    # AUTO SAVE (bez zmian)
+    # AUTO SAVE
     if "CHAR_DEBUG - SAVE" in line:
         msg = f"{date_str} | {log_time} 💾 Autozapis gracza zakończony"
         ch = client.get_channel(CHANNEL_IDS["admin"])
@@ -105,7 +105,7 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n[32m{msg}[0m\n```")
         return
 
-    # CHAT (bez zmian)
+    # CHAT
     if "[Chat -" in line:
         match = re.search(r'\[Chat - ([^\]]+)\]\("([^"]+)"\(id=[^)]+\)\): (.+)', line)
         if match:

@@ -121,10 +121,11 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # Zapisuj nierozpoznane linie do pliku
+    # Zapisuj nierozpoznane linie do pliku – teraz bez globalnej zmiennej
     try:
+        unparsed_log = "unparsed_lines.log"
         timestamp = datetime.utcnow().isoformat()
-        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
+        with open(unparsed_log, "a", encoding="utf-8") as f:
             f.write(f"{timestamp} | {line}\n")
         print(f"[UNPARSED → plik] {line[:120]}...")
     except Exception as e:

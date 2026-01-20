@@ -1,3 +1,4 @@
+# Zaktualizowany config.py – dodałem nowy kanał "damages" (zmień ID na prawdziwy)
 import os
 from dotenv import load_dotenv
 
@@ -18,8 +19,8 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 CHANNEL_IDS = {
     "connections": 1458909797121527849,
-    "kills":       1458909797121527849,
-    "deaths":      1458909797121527849,
+    "kills":       1458909797121527849,   # ← Zmiana: stary "deaths" na "kills" dla zabójstw
+    "damages":     1458909797121527850,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
     "admin":       1458909797121527849,
     "chat":        1458909797121527849,
     "debug":       123456789012345678,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!

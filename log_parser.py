@@ -53,7 +53,15 @@ async def process_line(bot, line: str):
             name = match.group(1).strip()
             id_val = match.group(2)
             player_login_times[name] = datetime.utcnow()
-            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
+
+            # ────────────────────────────────────────────────
+            # Dodajemy obie wartości w formacie, który podałeś
+            msg = (
+                f"{date_str} | {log_time} 🟢 Połączono → {name} "
+                f"(SteamID: {id_val} | ID: {id_val})"
+            )
+            # ────────────────────────────────────────────────
+
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")

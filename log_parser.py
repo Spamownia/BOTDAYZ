@@ -170,11 +170,11 @@ async def process_line(bot, line: str):
                 emoji = "☠️"
                 extra = " (ŚMIERĆ)"
             elif hp < 20:
-                color = "[38;5;208m"  # pomarańczowy
+                color = "[33m"  # pomarańczowy
                 emoji = "🔥"
                 extra = f" (krytycznie niski HP: {hp})"
             else:
-                color = "[38;5;208m"  # żółty
+                color = "[33m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 
@@ -204,11 +204,11 @@ async def process_line(bot, line: str):
                 emoji = "☠️"
                 extra = " (ŚMIERĆ)"
             elif hp < 20:
-                color = "[38;5;208m"  # pomarańczowy
+                color = "[33m"  # pomarańczowy
                 emoji = "🔥"
                 extra = f" (krytycznie niski HP: {hp})"
             else:
-                color = "[38;5;208m"  # żółty
+                color = "[33m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 

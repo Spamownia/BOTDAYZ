@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 import os
 import time
+import requests
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
@@ -45,25 +46,47 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Połączono – zielony + oba ID (SteamID i id)
+    # 1. Połączono – zielony + oba ID w jednej linii + IP z lokalizacją na connections
     if "is connected" in line and 'Player "' in line:
-        # Rozszerzony regex – łapie zarówno steamID, jak i id
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)(?:, )?(?:steamID|id)?=([^)]+)?\)? is connected', line)
+        # Rozszerzony regex – łapie oba ID i IP:port
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)(?:, )?(?:steamID|id)?=([^)]+)?\)? is connected(?: from ([\d.:]+))?', line)
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
             id1 = match.group(2).strip()
             id2 = match.group(3).strip() if match.group(3) else None
-            
-            ids_str = f"SteamID: {id1}" if not id2 else f"SteamID: {id1} | ID: {id2}"
+            ip_port = match.group(4) if len(match.groups()) > 3 else None
+
             player_login_times[name] = datetime.utcnow()
+
+            # Oba ID w jednej linii
+            ids_str = f"SteamID: {id1}" if not id2 else f"SteamID: {id1} | ID: {id2}"
+
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} ({ids_str})"
+
+            # IP + lokalizacja (kraj + miasto) – dodane do tej samej wiadomości
+            if ip_port:
+                ip = ip_port.split(':')[0]
+                geo = ""
+                try:
+                    r = requests.get(f"https://ipapi.co/{ip}/json/", timeout=3)
+                    if r.status_code == 200:
+                        data = r.json()
+                        city = data.get('city', 'nieznane')
+                        country = data.get('country_name', 'nieznane')
+                        geo = f" z {city}, {country}"
+                    else:
+                        geo = f" z IP: {ip}"
+                except:
+                    geo = f" z IP: {ip}"
+                msg += geo
+
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – czerwony (nie usuwam, jest zawsze)
+    # 2. Rozłączono – czerwony (jest zawsze)
     if "disconnected" in line.lower():
         match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
@@ -101,7 +124,6 @@ async def process_line(bot, line: str):
 
     # 4. Obrażenia i śmierci – pomarańczowy dla hit, czerwony dla śmierci
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
-        # Pełne zabójstwo – czerwone na kills-kanał
         match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
@@ -116,7 +138,6 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Hit by Player – pomarańczowy na damages-kanał
         match_hit_player = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
         if match_hit_player:
             detected_events["hit"] += 1
@@ -142,7 +163,6 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # Hit by Infected – pomarańczowy
         match_hit_infected = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Infected .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)(?: with ([\w ]+) from ([\d.]+) meters)?', line)
         if match_hit_infected:
             detected_events["hit"] += 1
@@ -167,7 +187,6 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # CHAR_DEBUG - KILL
         if "CHAR_DEBUG - KILL" in line:
             detected_events["kill"] += 1
             match = re.search(r'player (\w+) \(dpnid = (\d+)\)', line)

@@ -1,3 +1,4 @@
+# Zaktualizowany log_parser.py – rozdzielone kanały dla kills (zabójstwa) i damages (obrażenia)
 import re
 from datetime import datetime
 import os
@@ -8,15 +9,14 @@ from utils import create_connect_embed, create_kill_embed, create_death_embed, c
 
 player_login_times = {}
 
-# Podsumowanie co ile sekund
+UNPARSED_LOG = "unparsed_lines.log"
+
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {
     "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0
 }
-
-UNPARSED_LOG = "unparsed_lines.log"
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
@@ -60,7 +60,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – czerwony (poprawiony regex)
+    # 2. Rozłączono – czerwony
     if "has been disconnected" in line or "disconnected" in line.lower():
         match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
@@ -96,9 +96,9 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Obrażenia i śmierci – kolory: żółty / pomarańczowy / czerwony
+    # 4. Obrażenia (damages-kanał) i śmierci (kills-kanał) – rozdzielone kanały
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
-        # Najpierw pełne zabójstwo – czerwone
+        # Najpierw pełne zabójstwo – czerwone na kills-kanał
         match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by (Player "([^"]+)"|Infected) .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
@@ -109,12 +109,12 @@ async def process_line(bot, line: str):
             dist = match_kill.group(5)
             
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist}m"
-            ch = client.get_channel(CHANNEL_IDS["deaths"])
+            ch = client.get_channel(CHANNEL_IDS["kills"])  # Osobny kanał dla zabójstw
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Potem obrażenia (hit by) – żółty/pomarańczowy
+        # Potem obrażenia – żółty/pomarańczowy na damages-kanał
         match_hit = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by (Player "([^"]+)"|Infected) .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)(?: with ([\w ]+) from ([\d.]+) meters)?', line)
         if match_hit:
             detected_events["hit"] += 1
@@ -145,12 +145,12 @@ async def process_line(bot, line: str):
                 extra = f" (HP: {hp})"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
-            ch = client.get_channel(CHANNEL_IDS["deaths"])
+            ch = client.get_channel(CHANNEL_IDS["damages"])  # Nowy kanał dla obrażeń
             if ch:
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # CHAR_DEBUG - KILL
+        # CHAR_DEBUG - KILL – czerwone na kills-kanał
         if "CHAR_DEBUG - KILL" in line:
             detected_events["kill"] += 1
             match = re.search(r'player (\w+) \(dpnid = (\d+)\)', line)
@@ -158,7 +158,7 @@ async def process_line(bot, line: str):
                 player = match.group(1)
                 dpnid = match.group(2)
                 msg = f"{date_str} | {log_time} ☠️ Śmierć: {player} (dpnid: {dpnid})"
-                ch = client.get_channel(CHANNEL_IDS["deaths"])
+                ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 return
@@ -181,7 +181,7 @@ async def process_line(bot, line: str):
     # Nierozpoznane
     detected_events["other"] += 1
 
-    # Zapis do pliku (bez printa)
+    # Zapis do pliku
     try:
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

@@ -20,10 +20,10 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 CHANNEL_IDS = {
     "connections": 1458909797121527849,
     "kills":       1458909797121527849,   # ← Zmiana: stary "deaths" na "kills" dla zabójstw
-    "damages":     1458909797121527850,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
+    "damages":     1458909797121527849,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
     "admin":       1458909797121527849,
-    "chat":        1458909797121527849,
-    "debug":       123456789012345678,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
+    "chat":        1458909548935905401,
+    "debug":       1249732031634739203,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
 }
 
 CHAT_CHANNEL_MAPPING = {

@@ -59,26 +59,27 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Połączono – zielony + oba ID w jednej linii (SteamID najpierw) + IP i lokalizacja
+    # 2. Połączono – zielony + oba ID w jednej linii (SteamID = ciąg znaków pierwszy, ID serverowe = cyfry drugi, po przecinku) + IP i lokalizacja
     if "is connected" in line and 'Player "' in line:
-        # Rozszerzony regex – łapie SteamID i/lub ID serverowe + IP
         match = re.search(
-            r'Player "([^"]+)"\((?:steamID=([0-9]+)|id=([^)]+))(?:, )?(?:steamID=([0-9]+)|id=([^)]+))?\) is connected(?: from ([\d.:]+))?',
+            r'Player "([^"]+)"\((?:steamID=([0-9a-zA-Z=]+)|id=([0-9]+))(?:, )?(?:steamID=([0-9a-zA-Z=]+)|id=([0-9]+))?\) is connected(?: from ([\d.:]+))?',
             line
         )
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
 
-            # Zbieramy SteamID i ID serverowe
+            # SteamID = ciąg znaków (litery + cyfry + =)
             steamid_candidates = [match.group(2), match.group(4)]
+            steamid = next((x for x in steamid_candidates if x and not x.isdigit()), None)
+
+            # ID serverowe = same cyfry
             serverid_candidates = [match.group(3), match.group(5)]
-            steamid = next((x for x in steamid_candidates if x), None)
-            serverid = next((x for x in serverid_candidates if x), None)
+            serverid = next((x for x in serverid_candidates if x and x.isdigit()), None)
 
             ids_str = ""
             if steamid and serverid:
-                ids_str = f"SteamID: {steamid} | ID: {serverid}"
+                ids_str = f"SteamID: {steamid} , ID: {serverid}"
             elif steamid:
                 ids_str = f"SteamID: {steamid}"
             elif serverid:
@@ -115,7 +116,7 @@ async def process_line(bot, line: str):
 
     # 3. Rozłączono – czerwony (jest zawsze)
     if "disconnected" in line.lower():
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
+        match = re.search(r'Player "([^"]+)"\((?:steamID|uid|id)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
             detected_events["disconnect"] += 1
             name = match.group(1).strip()

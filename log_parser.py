@@ -2,7 +2,6 @@ import re
 from datetime import datetime
 import os
 import time
-import requests  # ← tylko to dodane
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
@@ -46,50 +45,25 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Połączono – zielony + IP + lokalizacja (tylko prywatnie)
+    # 1. Połączono – zielony + oba ID (SteamID i id)
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected(?: from ([\d.:]+))?', line)
+        # Rozszerzony regex – łapie zarówno steamID, jak i id
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)(?:, )?(?:steamID|id)?=([^)]+)?\)? is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
-            id_val = match.group(2)
-            ip_port = match.group(3) if len(match.groups()) > 2 else None
-
+            id1 = match.group(2).strip()
+            id2 = match.group(3).strip() if match.group(3) else None
+            
+            ids_str = f"SteamID: {id1}" if not id2 else f"SteamID: {id1} | ID: {id2}"
             player_login_times[name] = datetime.utcnow()
-            
-            public_msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
-            private_msg = public_msg
-
-            if ip_port:
-                ip = ip_port.split(':')[0]
-                geo = ""
-                try:
-                    r = requests.get(f"https://ipapi.co/{ip}/json/", timeout=3)
-                    if r.status_code == 200:
-                        data = r.json()
-                        city = data.get('city', 'nieznane')
-                        country = data.get('country_name', 'nieznane')
-                        geo = f" ({city}, {country})"
-                    else:
-                        geo = f" (IP: {ip})"
-                except:
-                    geo = f" (IP: {ip})"
-                
-                private_msg += geo  # pełna lokalizacja tylko prywatnie
-
-            # Publiczne – bez IP
-            ch_public = client.get_channel(CHANNEL_IDS["connections"])
-            if ch_public:
-                await ch_public.send(f"```ansi\n[32m{public_msg}[0m\n```")
-
-            # Prywatne – z IP + geo (na debug/admin)
-            ch_private = client.get_channel(CHANNEL_IDS["connections"])  # lub zmień na "admin"
-            if ch_private and ip_port:
-                await ch_private.send(f"```ansi\n[32m{private_msg}[0m\n```")
-            
+            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} ({ids_str})"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – czerwony
+    # 2. Rozłączono – czerwony (nie usuwam, jest zawsze)
     if "disconnected" in line.lower():
         match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:

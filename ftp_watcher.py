@@ -14,7 +14,7 @@ class DayZLogWatcher:
         self.last_rpt_pos = 0
         self.last_adm_pos = 0
         self._load_last_positions()
-        print("[FTP DEBUG] Inicjalizacja – czyta .RPT + .ADM")
+        print("[FTP WATCHER] Inicjalizacja – pamięć pozycji z JSON")
 
     def _load_last_positions(self):
         if os.path.exists(LAST_POSITIONS_FILE):
@@ -23,13 +23,13 @@ class DayZLogWatcher:
                     data = json.load(f)
                     self.last_rpt = data.get('last_rpt')
                     self.last_adm = data.get('last_adm')
-                    self.last_rpt_pos = data.get('last_rpt_pos', 0)
-                    self.last_adm_pos = data.get('last_adm_pos', 0)
-                    print(f"[FTP DEBUG] Załadowano pozycje: RPT={self.last_rpt_pos}, ADM={self.last_adm_pos}")
+                    self.last_rpt_pos = int(data.get('last_rpt_pos', 0))
+                    self.last_adm_pos = int(data.get('last_adm_pos', 0))
+                    print(f"[FTP WATCHER] Załadowano pozycje: RPT={self.last_rpt} @ {self.last_rpt_pos:,} bajtów | ADM={self.last_adm} @ {self.last_adm_pos:,} bajtów")
             except Exception as e:
-                print(f"[FTP DEBUG] Błąd ładowania pozycji: {e}")
+                print(f"[FTP WATCHER] Błąd ładowania pozycji: {e} – start od zera")
         else:
-            print("[FTP DEBUG] Brak pliku pozycji – start od zera")
+            print("[FTP WATCHER] Brak pliku pozycji – start od zera")
 
     def _save_last_positions(self):
         data = {
@@ -41,9 +41,9 @@ class DayZLogWatcher:
         try:
             with open(LAST_POSITIONS_FILE, 'w') as f:
                 json.dump(data, f)
-            print("[FTP DEBUG] Zapisano aktualne pozycje do pliku")
+            print(f"[FTP WATCHER] Zapisano aktualne pozycje: RPT@{self.last_rpt_pos:,} | ADM@{self.last_adm_pos:,}")
         except Exception as e:
-            print(f"[FTP DEBUG] Błąd zapisu pozycji: {e}")
+            print(f"[FTP WATCHER] Błąd zapisu pozycji: {e}")
 
     def connect_and_debug(self):
         if self.ftp:
@@ -51,20 +51,20 @@ class DayZLogWatcher:
                 self.ftp.voidcmd("NOOP")
                 return True
             except:
-                print("[FTP DEBUG] Stare połączenie padło")
+                print("[FTP WATCHER] Stare połączenie padło – reconnect")
                 self.ftp = None
 
         try:
-            print(f"[FTP DEBUG] Łączenie: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
-            self.ftp = FTP(timeout=20)
+            print(f"[FTP WATCHER] Łączenie: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
+            self.ftp = FTP(timeout=30)
             self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
             self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
             self.ftp.cwd(FTP_LOG_DIR)
-            print(f"[FTP DEBUG] cwd OK → {self.ftp.pwd()}")
+            print(f"[FTP WATCHER] cwd OK → {self.ftp.pwd()}")
             self.ftp.set_pasv(True)
             return True
         except Exception as e:
-            print(f"[FTP DEBUG] Błąd połączenia: {e}")
+            print(f"[FTP WATCHER] Błąd połączenia: {e}")
             self.ftp = None
             return False
 
@@ -76,27 +76,19 @@ class DayZLogWatcher:
             files_lines = []
             self.ftp.dir(files_lines.append)
 
-            rpt_files = []
-            adm_files = []
+            rpt_files = [f for f in files_lines if f.lower().endswith('.rpt')]
+            adm_files = [f for f in files_lines if f.lower().endswith('.adm')]
 
-            for line in files_lines:
-                parts = line.split()
-                if len(parts) >= 9:
-                    filename = ' '.join(parts[8:])
-                    if filename.lower().endswith('.rpt'):
-                        rpt_files.append(filename)
-                    elif filename.lower().endswith('.adm'):
-                        adm_files.append(filename)
+            # Wyciągamy nazwy plików (ostatnia część linii po dacie/czasie/rozmiarze)
+            latest_rpt = max((line.split()[-1] for line in rpt_files), key=str, default=None)
+            latest_adm = max((line.split()[-1] for line in adm_files), key=str, default=None)
 
-            latest_rpt = max(rpt_files) if rpt_files else None
-            latest_adm = max(adm_files) if adm_files else None
-
-            print(f"[FTP DEBUG] Najnowszy .RPT: {latest_rpt}")
-            print(f"[FTP DEBUG] Najnowszy .ADM: {latest_adm}")
+            print(f"[FTP WATCHER] Najnowszy .RPT: {latest_rpt}")
+            print(f"[FTP WATCHER] Najnowszy .ADM: {latest_adm}")
 
             return latest_rpt, latest_adm
         except Exception as e:
-            print(f"[FTP DEBUG] Błąd listowania: {e}")
+            print(f"[FTP WATCHER] Błąd listowania plików: {e}")
             return None, None
 
     def get_new_content(self):
@@ -116,7 +108,7 @@ class DayZLogWatcher:
             if content_adm:
                 contents.append(content_adm)
 
-        # Zapisz pozycje TYLKO jeśli coś przeczytaliśmy
+        # Zapisujemy pozycje TYLKO jeśli coś faktycznie przeczytaliśmy
         if contents:
             self._save_last_positions()
 
@@ -125,17 +117,18 @@ class DayZLogWatcher:
     def _get_content(self, filename, file_type):
         try:
             size = self.ftp.size(filename)
-            print(f"[FTP DEBUG] {filename} → {size:,} bajtów")
+            print(f"[FTP WATCHER] {filename} → {size:,} bajtów")
 
             last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
             last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
 
-            if filename != last_file:
-                print(f"[FTP DEBUG] Nowy plik {file_type.upper()} → start od końca")
+            # Jeśli plik się zmienił (nowy log po rotacji) → startujemy od końca - 5 MB
+            if filename != last_file or last_file is None:
+                print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
                 last_pos = max(0, size - 5_000_000)
 
             if last_pos >= size:
-                print(f"[FTP DEBUG] Brak nowych danych w {filename}")
+                print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")
                 return ""
 
             data = bytearray()
@@ -145,14 +138,14 @@ class DayZLogWatcher:
             if text and '\n' in text:
                 text = text[text.index('\n') + 1:]  # pomijamy niepełną linię na początku
 
-            lines = len(text.splitlines())
-            print(f"[FTP DEBUG] Pobrano {lines} nowych linii z {filename}")
+            lines_count = len(text.splitlines())
+            print(f"[FTP WATCHER] Pobrano {lines_count} nowych linii z {filename} (od {last_pos:,} do {size:,} bajtów)")
 
             if text:
-                preview = text[:300].replace('\n', ' | ')
-                print(f"[FTP DEBUG PREVIEW {file_type.upper()}] {preview}...")
+                preview = text[:200].replace('\n', ' | ')
+                print(f"[FTP WATCHER PREVIEW {file_type.upper()}] {preview}...")
 
-            # Aktualizuj pozycję
+            # Aktualizacja pozycji
             if file_type == 'rpt':
                 self.last_rpt = filename
                 self.last_rpt_pos = size
@@ -162,5 +155,5 @@ class DayZLogWatcher:
 
             return text
         except Exception as e:
-            print(f"[FTP DEBUG] Błąd pobierania {filename}: {e}")
+            print(f"[FTP WATCHER] Błąd pobierania {filename}: {e}")
             return ""

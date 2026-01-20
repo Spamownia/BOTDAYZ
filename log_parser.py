@@ -51,17 +51,14 @@ async def process_line(bot, line: str):
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
-            id_val = match.group(2)
+            id_val = match.group(2).strip()
             player_login_times[name] = datetime.utcnow()
-
-            # ────────────────────────────────────────────────
-            # Dodajemy obie wartości w formacie, który podałeś
+            
             msg = (
                 f"{date_str} | {log_time} 🟢 Połączono → {name} "
                 f"(SteamID: {id_val} | ID: {id_val})"
             )
-            # ────────────────────────────────────────────────
-
+            
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
@@ -146,7 +143,7 @@ async def process_line(bot, line: str):
                 emoji = "🔥"
                 extra = f" (krytycznie niski HP: {hp})"
             else:
-                color = "[33m"  # żółty
+                color = "[38;5;208m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 

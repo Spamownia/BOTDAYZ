@@ -116,7 +116,7 @@ async def process_line(bot, line: str):
 
     # 3. Rozłączono – czerwony (jest zawsze)
     if "disconnected" in line.lower():
-        match = re.search(r'Player "([^"]+)"\((?:steamID|uid|id)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
             detected_events["disconnect"] += 1
             name = match.group(1).strip()

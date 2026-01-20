@@ -47,18 +47,49 @@ async def process_line(bot, line: str):
 
     # 1. Połączono – zielony
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
+        # Rozszerzony regex – łapie nazwę i całą zawartość nawiasu
+        match = re.search(r'Player "([^"]+)"\(([^)]*)\) is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
-            id_val = match.group(2).strip()
+            parenth_content = match.group(2).strip()  # np. "id=..." lub "steamID=..." lub "steamID=...,guid=..."
+
             player_login_times[name] = datetime.utcnow()
-            
+
+            steam_id = "Brak"
+            server_id = "Brak"
+
+            # Proste parsowanie zawartości nawiasu
+            if parenth_content:
+                # Najczęstsze przypadki w Twoich logach
+                if parenth_content.startswith("id="):
+                    server_id = parenth_content[3:].strip()
+                elif parenth_content.startswith("steamID="):
+                    steam_id = parenth_content[8:].strip()
+                elif '=' in parenth_content:
+                    # Może być "steamID=...,guid=..."
+                    parts = [p.strip() for p in parenth_content.split(',')]
+                    for part in parts:
+                        if '=' in part:
+                            k, v = part.split('=', 1)
+                            k = k.lower().strip()
+                            v = v.strip()
+                            if 'steam' in k:
+                                steam_id = v
+                            else:
+                                server_id = v
+                else:
+                    # sama wartość bez klucza – zakładamy SteamID jeśli wygląda na numer
+                    if parenth_content.isdigit() and 16 <= len(parenth_content) <= 18:
+                        steam_id = parenth_content
+                    else:
+                        server_id = parenth_content
+
             msg = (
                 f"{date_str} | {log_time} 🟢 Połączono → {name} "
-                f"(SteamID: {id_val} | ID: {id_val})"
+                f"(SteamID: {steam_id} | ID: {server_id})"
             )
-            
+
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
@@ -177,7 +208,7 @@ async def process_line(bot, line: str):
                 emoji = "🔥"
                 extra = f" (krytycznie niski HP: {hp})"
             else:
-                color = "[33m"  # żółty
+                color = "[38;5;208m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 

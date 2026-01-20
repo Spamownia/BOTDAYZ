@@ -59,8 +59,9 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – czerwony
+    # 2. Rozłączono – czerwony (poprawiony, bardziej elastyczny regex)
     if "has been disconnected" in line or "disconnected" in line.lower():
+        # Obsługuje różne formaty, np. z guid, uid, steamID
         match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
             detected_events["disconnect"] += 1
@@ -95,7 +96,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Obrażenia i śmierci – pomarańczowy dla obrażeń, czerwony dla śmierci
+    # 4. Obrażenia i śmierci – kolory i kanały rozdzielone
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
         # Najpierw pełne zabójstwo – czerwone na kills-kanał
         match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
@@ -112,17 +113,17 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Potem obrażenia – pomarańczowy na damages-kanał (poprawione regex na Player)
-        match_hit = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
-        if match_hit:
+        # Hit by Player – pomarańczowy/żółty na damages-kanał
+        match_hit_player = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
+        if match_hit_player:
             detected_events["hit"] += 1
-            victim = match_hit.group(1)
-            attacker = match_hit.group(2)
-            part = match_hit.group(3)
-            dmg = match_hit.group(4)
-            ammo = match_hit.group(5)
-            weapon = match_hit.group(6)
-            dist = match_hit.group(7)
+            victim = match_hit_player.group(1)
+            attacker = match_hit_player.group(2)
+            part = match_hit_player.group(3)
+            dmg = match_hit_player.group(4)
+            ammo = match_hit_player.group(5)
+            weapon = match_hit_player.group(6)
+            dist = match_hit_player.group(7)
 
             hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
             hp = float(hp_match.group(1)) if hp_match else 100.0
@@ -132,8 +133,12 @@ async def process_line(bot, line: str):
                 color = "[31m"
                 emoji = "☠️"
                 extra = " (ŚMIERĆ)"
-            else:
+            elif hp < 20:
                 color = "[38;5;208m"  # pomarańczowy
+                emoji = "🔥"
+                extra = f" (krytycznie niski HP: {hp})"
+            else:
+                color = "[33m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 
@@ -143,16 +148,16 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # Hit by Infected (jeśli nie PvP) – pomarańczowy
-        match_hit_infected = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Infected .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
+        # Hit by Infected – pomarańczowy/żółty na damages
+        match_hit_infected = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Infected .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)(?: with ([\w ]+) from ([\d.]+) meters)?', line)
         if match_hit_infected:
             detected_events["hit"] += 1
             victim = match_hit_infected.group(1)
             part = match_hit_infected.group(2)
             dmg = match_hit_infected.group(3)
             ammo = match_hit_infected.group(4)
-            weapon = match_hit_infected.group(5)
-            dist = match_hit_infected.group(6)
+            weapon = match_hit_infected.group(5) or "brak"
+            dist = match_hit_infected.group(6) or "brak"
 
             hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
             hp = float(hp_match.group(1)) if hp_match else 100.0
@@ -162,8 +167,12 @@ async def process_line(bot, line: str):
                 color = "[31m"
                 emoji = "☠️"
                 extra = " (ŚMIERĆ)"
-            else:
+            elif hp < 20:
                 color = "[38;5;208m"  # pomarańczowy
+                emoji = "🔥"
+                extra = f" (krytycznie niski HP: {hp})"
+            else:
+                color = "[33m"  # żółty
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 

@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 import os
 import time
+import requests  # ← dodane dla geolokalizacji
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
@@ -45,23 +46,52 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Połączono – zielony
+    # 1. Połączono – zielony + IP + lokalizacja (tylko prywatnie)
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected', line)
+        match = re.search(r'Player "([^"]+)"\((?:steamID|id)=([^)]+)\) is connected(?: from ([\d.:]+))?', line)
         if match:
             detected_events["join"] += 1
             name = match.group(1).strip()
             id_val = match.group(2)
+            ip_port = match.group(3) if len(match.groups()) > 2 else None
+
             player_login_times[name] = datetime.utcnow()
-            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch:
-                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+            
+            public_msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
+            private_msg = public_msg
+
+            if ip_port:
+                ip = ip_port.split(':')[0]
+                geo = ""
+                try:
+                    r = requests.get(f"https://ipapi.co/{ip}/json/", timeout=3)
+                    if r.status_code == 200:
+                        data = r.json()
+                        city = data.get('city', 'nieznane')
+                        country = data.get('country_name', 'nieznane')
+                        geo = f" ({city}, {country})"
+                    else:
+                        geo = f" (IP: {ip})"
+                except:
+                    geo = f" (IP: {ip})"
+                
+                private_msg += geo  # pełna lokalizacja tylko prywatnie
+                public_msg += " z [kraj]"  # możesz zmienić na "" jeśli chcesz ukryć całkowicie
+
+            # Publiczne – na connections (bez IP)
+            ch_public = client.get_channel(CHANNEL_IDS["connections"])
+            if ch_public:
+                await ch_public.send(f"```ansi\n[32m{public_msg}[0m\n```")
+
+            # Prywatne – na debug/admin (z IP + geo)
+            ch_private = client.get_channel(CHANNEL_IDS["debug"])  # lub "admin"
+            if ch_private and ip_port:
+                await ch_private.send(f"```ansi\n[32m{private_msg}[0m\n```")
+            
             return
 
-    # 2. Rozłączono – czerwony (poprawiony, bardziej elastyczny regex)
-    if "has been disconnected" in line or "disconnected" in line.lower():
-        # Obsługuje różne formaty, np. z guid, uid, steamID
+    # 2. Rozłączono – czerwony
+    if "disconnected" in line.lower():
         match = re.search(r'Player "([^"]+)"\((?:steamID|id|uid)?=([^)]+)\).*disconnected', line, re.IGNORECASE)
         if match:
             detected_events["disconnect"] += 1
@@ -96,9 +126,9 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Obrażenia i śmierci – kolory i kanały rozdzielone
+    # 4. Obrażenia i śmierci – pomarańczowy/żółty dla hit, czerwony dla kill
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
-        # Najpierw pełne zabójstwo – czerwone na kills-kanał
+        # Pełne zabójstwo – czerwone na kills
         match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
@@ -113,7 +143,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Hit by Player – pomarańczowy/żółty na damages-kanał
+        # Hit by Player – pomarańczowy na damages
         match_hit_player = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
         if match_hit_player:
             detected_events["hit"] += 1
@@ -129,18 +159,9 @@ async def process_line(bot, line: str):
             hp = float(hp_match.group(1)) if hp_match else 100.0
             is_dead = hp <= 0 or "DEAD" in line
 
-            if is_dead:
-                color = "[31m"
-                emoji = "☠️"
-                extra = " (ŚMIERĆ)"
-            elif hp < 20:
-                color = "[38;5;208m"  # pomarańczowy
-                emoji = "🔥"
-                extra = f" (krytycznie niski HP: {hp})"
-            else:
-                color = "[33m"  # żółty
-                emoji = "⚡"
-                extra = f" (HP: {hp})"
+            color = "[38;5;208m" if not is_dead else "[31m"
+            emoji = "⚡" if not is_dead else "☠️"
+            extra = f" (HP: {hp})" if not is_dead else " (ŚMIERĆ)"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
             ch = client.get_channel(CHANNEL_IDS["damages"])
@@ -148,7 +169,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # Hit by Infected – pomarańczowy/żółty na damages
+        # Hit by Infected – pomarańczowy
         match_hit_infected = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Infected .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)(?: with ([\w ]+) from ([\d.]+) meters)?', line)
         if match_hit_infected:
             detected_events["hit"] += 1
@@ -163,18 +184,9 @@ async def process_line(bot, line: str):
             hp = float(hp_match.group(1)) if hp_match else 100.0
             is_dead = hp <= 0 or "DEAD" in line
 
-            if is_dead:
-                color = "[31m"
-                emoji = "☠️"
-                extra = " (ŚMIERĆ)"
-            elif hp < 20:
-                color = "[38;5;208m"  # pomarańczowy
-                emoji = "🔥"
-                extra = f" (krytycznie niski HP: {hp})"
-            else:
-                color = "[33m"  # żółty
-                emoji = "⚡"
-                extra = f" (HP: {hp})"
+            color = "[38;5;208m" if not is_dead else "[31m"
+            emoji = "⚡" if not is_dead else "☠️"
+            extra = f" (HP: {hp})" if not is_dead else " (ŚMIERĆ)"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez Infected w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
             ch = client.get_channel(CHANNEL_IDS["damages"])
@@ -182,7 +194,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # CHAR_DEBUG - KILL – czerwone na kills
+        # CHAR_DEBUG - KILL
         if "CHAR_DEBUG - KILL" in line:
             detected_events["kill"] += 1
             match = re.search(r'player (\w+) \(dpnid = (\d+)\)', line)

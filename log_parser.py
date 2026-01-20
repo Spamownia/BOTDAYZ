@@ -1,4 +1,3 @@
-# Zaktualizowany log_parser.py – rozdzielone kanały dla kills (zabójstwa) i damages (obrażenia)
 import re
 from datetime import datetime
 import os
@@ -96,36 +95,34 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Obrażenia (damages-kanał) i śmierci (kills-kanał) – rozdzielone kanały
+    # 4. Obrażenia i śmierci – pomarańczowy dla obrażeń, czerwony dla śmierci
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
         # Najpierw pełne zabójstwo – czerwone na kills-kanał
-        match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by (Player "([^"]+)"|Infected) .* with ([\w ]+) from ([\d.]+) meters', line)
+        match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
             victim = match_kill.group(1)
-            attacker_type = match_kill.group(2)
-            attacker = match_kill.group(3) if attacker_type == "Player" else "Infected"
-            weapon = match_kill.group(4)
-            dist = match_kill.group(5)
+            attacker = match_kill.group(2)
+            weapon = match_kill.group(3)
+            dist = match_kill.group(4)
             
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist}m"
-            ch = client.get_channel(CHANNEL_IDS["kills"])  # Osobny kanał dla zabójstw
+            ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Potem obrażenia – żółty/pomarańczowy na damages-kanał
-        match_hit = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by (Player "([^"]+)"|Infected) .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\)(?: with ([\w ]+) from ([\d.]+) meters)?', line)
+        # Potem obrażenia – pomarańczowy na damages-kanał (poprawione regex na Player)
+        match_hit = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
         if match_hit:
             detected_events["hit"] += 1
             victim = match_hit.group(1)
-            attacker_type = match_hit.group(2)
-            attacker = match_hit.group(3) if attacker_type == "Player" else "Infected"
-            part = match_hit.group(4)
-            dmg = match_hit.group(5)
-            ammo = match_hit.group(6)
-            weapon = match_hit.group(7) or "brak"
-            dist = match_hit.group(8) or "brak"
+            attacker = match_hit.group(2)
+            part = match_hit.group(3)
+            dmg = match_hit.group(4)
+            ammo = match_hit.group(5)
+            weapon = match_hit.group(6)
+            dist = match_hit.group(7)
 
             hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
             hp = float(hp_match.group(1)) if hp_match else 100.0
@@ -135,22 +132,48 @@ async def process_line(bot, line: str):
                 color = "[31m"
                 emoji = "☠️"
                 extra = " (ŚMIERĆ)"
-            elif hp < 20:
-                color = "[38;5;208m"  # pomarańczowy
-                emoji = "🔥"
-                extra = f" (krytycznie niski HP: {hp})"
             else:
-                color = "[33m"  # żółty
+                color = "[38;5;208m"  # pomarańczowy
                 emoji = "⚡"
                 extra = f" (HP: {hp})"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
-            ch = client.get_channel(CHANNEL_IDS["damages"])  # Nowy kanał dla obrażeń
+            ch = client.get_channel(CHANNEL_IDS["damages"])
             if ch:
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # CHAR_DEBUG - KILL – czerwone na kills-kanał
+        # Hit by Infected (jeśli nie PvP) – pomarańczowy
+        match_hit_infected = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Infected .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
+        if match_hit_infected:
+            detected_events["hit"] += 1
+            victim = match_hit_infected.group(1)
+            part = match_hit_infected.group(2)
+            dmg = match_hit_infected.group(3)
+            ammo = match_hit_infected.group(4)
+            weapon = match_hit_infected.group(5)
+            dist = match_hit_infected.group(6)
+
+            hp_match = re.search(r'\[HP: ([\d.]+)\]', line)
+            hp = float(hp_match.group(1)) if hp_match else 100.0
+            is_dead = hp <= 0 or "DEAD" in line
+
+            if is_dead:
+                color = "[31m"
+                emoji = "☠️"
+                extra = " (ŚMIERĆ)"
+            else:
+                color = "[38;5;208m"  # pomarańczowy
+                emoji = "⚡"
+                extra = f" (HP: {hp})"
+
+            msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez Infected w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
+            ch = client.get_channel(CHANNEL_IDS["damages"])
+            if ch:
+                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+            return
+
+        # CHAR_DEBUG - KILL – czerwone na kills
         if "CHAR_DEBUG - KILL" in line:
             detected_events["kill"] += 1
             match = re.search(r'player (\w+) \(dpnid = (\d+)\)', line)

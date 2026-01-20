@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 import os
 import time
-import requests  # ← dodane dla geolokalizacji
+import requests  # ← tylko to dodane
 from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
@@ -76,15 +76,14 @@ async def process_line(bot, line: str):
                     geo = f" (IP: {ip})"
                 
                 private_msg += geo  # pełna lokalizacja tylko prywatnie
-                public_msg += " z [kraj]"  # możesz zmienić na "" jeśli chcesz ukryć całkowicie
 
-            # Publiczne – na connections (bez IP)
+            # Publiczne – bez IP
             ch_public = client.get_channel(CHANNEL_IDS["connections"])
             if ch_public:
                 await ch_public.send(f"```ansi\n[32m{public_msg}[0m\n```")
 
-            # Prywatne – na debug/admin (z IP + geo)
-            ch_private = client.get_channel(CHANNEL_IDS["debug"])  # lub "admin"
+            # Prywatne – z IP + geo (na debug/admin)
+            ch_private = client.get_channel(CHANNEL_IDS["debug"])  # lub zmień na "admin"
             if ch_private and ip_port:
                 await ch_private.send(f"```ansi\n[32m{private_msg}[0m\n```")
             
@@ -126,9 +125,9 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Obrażenia i śmierci – pomarańczowy/żółty dla hit, czerwony dla kill
+    # 4. Obrażenia i śmierci – pomarańczowy dla hit, czerwony dla śmierci
     if any(keyword in line for keyword in ["hit by", "killed by", "[HP: 0]", "CHAR_DEBUG - KILL"]):
-        # Pełne zabójstwo – czerwone na kills
+        # Pełne zabójstwo – czerwone na kills-kanał
         match_kill = re.search(r'Player "([^"]+)" \(DEAD\) .* killed by Player "([^"]+)" .* with ([\w ]+) from ([\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
@@ -143,7 +142,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Hit by Player – pomarańczowy na damages
+        # Hit by Player – pomarańczowy na damages-kanał
         match_hit_player = re.search(r'Player "([^"]+)"(?: \(DEAD\))? .*hit by Player "([^"]+)" .*into (\w+)\(\d+\) for ([\d.]+) damage \(([^)]+)\) with ([\w ]+) from ([\d.]+) meters', line)
         if match_hit_player:
             detected_events["hit"] += 1

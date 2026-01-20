@@ -83,7 +83,7 @@ async def process_line(bot, line: str):
                 await ch_public.send(f"```ansi\n[32m{public_msg}[0m\n```")
 
             # Prywatne – z IP + geo (na debug/admin)
-            ch_private = client.get_channel(CHANNEL_IDS["debug"])  # lub zmień na "admin"
+            ch_private = client.get_channel(CHANNEL_IDS["connections"])  # lub zmień na "admin"
             if ch_private and ip_port:
                 await ch_private.send(f"```ansi\n[32m{private_msg}[0m\n```")
             

@@ -59,11 +59,13 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – bardziej elastyczny regex
-    if "disconnected" in line.lower() and 'Player "' in line:
-        # Najpierw wyciągamy nick – zawsze jest w cudzysłowach
-        name_match = re.search(r'Player\s*"([^"]+)"', line, re.IGNORECASE)
-        if not name_match:
+    # 2. Rozłączono – rozszerzony na kicked i bardziej elastyczny regex
+    if ("disconnected" in line.lower() or "kicked from server" in line.lower()) and 'Player ' in line:
+        # Wyciąganie nicku – obsługa z " i bez
+        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))\s*\(', line, re.IGNORECASE)
+        if name_match:
+            name = (name_match.group(1) or name_match.group(2)).strip()
+        else:
             detected_events["disconnect"] += 1
             msg = f"{date_str} | {log_time} 🔴 Rozłączono → ???? (nie udało się odczytać nicku)"
             ch = client.get_channel(CHANNEL_IDS["connections"])
@@ -71,10 +73,8 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        name = name_match.group(1).strip()
-
-        # Próba wyciągnięcia ID (może być, może nie – różne formaty)
-        id_match = re.search(r'\((?:steamID|id|uid)?\s*=\s*([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
+        # Wyciąganie ID – obsługa z prefixem id= lub bez (czysta liczba/string)
+        id_match = re.search(r'\(\s*(?:(?:steamID|id|uid)\s*=\s*)?([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
         id_val = id_match.group(1).strip() if id_match else "brak"
 
         detected_events["disconnect"] += 1

@@ -59,27 +59,39 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono
-    if "has been disconnected" in line or "disconnected" in line.lower():
-        match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id|uid)?=(?P<id_val>[^)]+)\).*disconnected', line, re.IGNORECASE)
-        if match:
+    # 2. Rozłączono – bardziej elastyczny regex
+    if "disconnected" in line.lower() and 'Player "' in line:
+        # Najpierw wyciągamy nick – zawsze jest w cudzysłowach
+        name_match = re.search(r'Player\s*"([^"]+)"', line, re.IGNORECASE)
+        if not name_match:
             detected_events["disconnect"] += 1
-            name = match.group("name").strip()
-            id_val = match.group("id_val").strip()
-            
-            time_online = "nieznany"
-            if name in player_login_times:
-                delta = datetime.utcnow() - player_login_times[name]
-                minutes = int(delta.total_seconds() // 60)
-                seconds = int(delta.total_seconds() % 60)
-                time_online = f"{minutes} min {seconds} s"
-                del player_login_times[name]
-            
-            msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} (ID: {id_val}) → {time_online}"
+            msg = f"{date_str} | {log_time} 🔴 Rozłączono → ???? (nie udało się odczytać nicku)"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
+
+        name = name_match.group(1).strip()
+
+        # Próba wyciągnięcia ID (może być, może nie – różne formaty)
+        id_match = re.search(r'\((?:steamID|id|uid)?\s*=\s*([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
+        id_val = id_match.group(1).strip() if id_match else "brak"
+
+        detected_events["disconnect"] += 1
+        
+        time_online = "nieznany"
+        if name in player_login_times:
+            delta = datetime.utcnow() - player_login_times[name]
+            minutes = int(delta.total_seconds() // 60)
+            seconds = int(delta.total_seconds() % 60)
+            time_online = f"{minutes} min {seconds} s"
+            del player_login_times[name]
+        
+        msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} (ID: {id_val}) → {time_online}"
+        ch = client.get_channel(CHANNEL_IDS["connections"])
+        if ch:
+            await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+        return
 
     # 3. COT
     if "[COT]" in line:

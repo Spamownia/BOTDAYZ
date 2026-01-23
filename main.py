@@ -20,6 +20,7 @@ flask_app = Flask(__name__)
 def home():
     return "Bot Husaria – żyje!", 200
 
+# Uruchamiamy Flask w osobnym wątku (bez zmian)
 threading.Thread(
     target=lambda: flask_app.run(host='0.0.0.0', port=10000, debug=False),
     daemon=True
@@ -46,12 +47,17 @@ async def check_logs():
         if not content:
             print("[CHECK] Brak nowych danych")
             return
-
+        
         lines = [l for l in content.splitlines() if l.strip()]
         print(f"[CHECK] Przetwarzam {len(lines)} linii")
-
+        
         for line in lines:
-            await process_line(client, line)
+            try:
+                await process_line(client, line)
+            except Exception as line_err:
+                print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
+                # Nie przerywamy całej pętli – idziemy dalej
+                
     except Exception as e:
         print(f"[CHECK ERROR] {e}")
 
@@ -60,8 +66,43 @@ async def on_ready():
     print(f"[BOT] Gotowy – {client.user}")
     update_status.start()
     check_logs.start()
-    print("[BOT] Pierwsze sprawdzenie...")
+    print("[BOT] Natychmiastowe pierwsze sprawdzenie...")
     await check_logs()
 
+# ────────────────────────────────────────────────
+#  Bezpieczne uruchamianie z backoff-em przy błędach
+# ────────────────────────────────────────────────
+
+async def safe_run_bot():
+    backoff = 5
+    max_backoff = 120  # max 2 minuty czekania
+
+    while True:
+        try:
+            await client.start(DISCORD_TOKEN)
+            break  # udało się połączyć – wychodzimy z pętli
+        except discord.errors.LoginFailure:
+            print("[FATAL] Nieprawidłowy token – wyłączam bota")
+            return
+        except discord.errors.HTTPException as e:
+            if e.status in (429, 1015):  # rate limit lub Cloudflare ban
+                wait_time = backoff
+                print(f"[RATE LIMIT / 1015] Czekam {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                backoff = min(backoff * 2, max_backoff)
+            else:
+                print(f"[HTTP ERROR] {e} – retry za {backoff}s")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)
+        except Exception as e:
+            print(f"[CRITICAL ERROR] {e} – restart za {backoff}s")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+
 if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+    try:
+        asyncio.run(safe_run_bot())
+    except KeyboardInterrupt:
+        print("[MAIN] Wyłączanie bota (Ctrl+C)")
+    except Exception as e:
+        print(f"[MAIN FATAL] {e}")

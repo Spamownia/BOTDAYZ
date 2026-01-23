@@ -10,6 +10,12 @@ player_login_times = {}
 
 UNPARSED_LOG = "unparsed_lines.log"
 
+# Bufor i kontrola zapisu – zapobiega blokowaniu event loop
+unparsed_buffer = []
+BUFFER_FLUSH_INTERVAL = 30  # sekund
+last_flush_time = time.time()
+OTHER_SAVE_EVERY = 100      # zapisuj co tyle innych linii
+
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
@@ -18,7 +24,7 @@ detected_events = {
 }
 
 async def process_line(bot, line: str):
-    global last_summary_time, processed_count
+    global last_summary_time, processed_count, last_flush_time
     
     client = bot
     line = line.strip()
@@ -59,9 +65,8 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – rozszerzony na formaty z .RPT (dpnid, kicked, disconnected)
+    # 2. Rozłączono
     if ("disconnected" in line.lower() or "kicked from server" in line.lower() or "[Disconnect]" in line) and 'Player ' in line:
-        # Wyciąganie nicku – obsługa "Name" (dpnid = number) lub "Name"(id=...)
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))(?:\s*\(|$)', line, re.IGNORECASE)
         if name_match:
             name = (name_match.group(1) or name_match.group(2)).strip()
@@ -73,7 +78,6 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Wyciąganie ID – obsługa id=, steamID=, dpnid =, lub czysta liczba w nawiasie
         id_match = re.search(r'\(\s*(?:(?:steamID|id|uid|dpnid)\s*=\s*)?([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
         id_val = id_match.group(1).strip() if id_match else "brak"
 
@@ -236,12 +240,19 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
             return
 
-    # Nierozpoznane
+    # Nierozpoznane – buforowany zapis + rzadki flush
     detected_events["other"] += 1
+    unparsed_buffer.append(f"{datetime.utcnow().isoformat()} | {line}\n")
 
-    try:
-        timestamp = datetime.utcnow().isoformat()
-        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
-            f.write(f"{timestamp} | {line}\n")
-    except Exception as e:
-        print(f"[BŁĄD ZAPISU UNPARSED] {e}")
+    # Zapisujemy rzadko – co X linii lub co Y sekund
+    now = time.time()
+    if (detected_events["other"] % OTHER_SAVE_EVERY == 0) or (now - last_flush_time > BUFFER_FLUSH_INTERVAL and unparsed_buffer):
+        if unparsed_buffer:
+            try:
+                with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
+                    f.writelines(unparsed_buffer)
+                unparsed_buffer.clear()
+                last_flush_time = now
+                print(f"[UNPARSED] Zapisano {detected_events['other']} nierozpoznanych linii")
+            except Exception as e:
+                print(f"[BŁĄD ZAPISU UNPARSED] {e}")

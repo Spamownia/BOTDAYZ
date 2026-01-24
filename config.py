@@ -18,20 +18,20 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
     raise ValueError("Brak danych FTP!")
 
 CHANNEL_IDS = {
-    "connections": 1458909797121527849,
-    "kills":       1458909797121527849,   # ← Zmiana: stary "deaths" na "kills" dla zabójstw
-    "damages":     1458909797121527849,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
-    "admin":       1458909797121527849,
-    "chat":        1458909548935905401,
-    "debug":       1249732031634739203,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
+    "connections": 1464697107842863348,
+    "kills":       1464697107842863348,   # ← Zmiana: stary "deaths" na "kills" dla zabójstw
+    "damages":     1464697107842863348,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
+    "admin":       1464697107842863348,
+    "chat":        1464697107842863348,
+    "debug":       1464697107842863348,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
 }
 
 CHAT_CHANNEL_MAPPING = {
-    "Global": 1458909548935905401,
-    "Admin":  1458909548935905401,
-    "Team":   1458909548935905401,
-    "Direct": 1458909548935905401,
-    "Unknown":1458909548935905401
+    "Global": 1464697107842863348,
+    "Admin":  1464697107842863348,
+    "Team":   1464697107842863348,
+    "Direct": None,
+    "Unknown":1464697107842863348
 }
 
 CHECK_INTERVAL = 30  # sekundy

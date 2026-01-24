@@ -110,7 +110,7 @@ async def process_line(bot, line: str):
 
         # Najpierw obsługa pełnego killa (linia "killed by Player ...")
         match_kill = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+\)) )? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
             line
         )
         if match_kill:
@@ -128,7 +128,7 @@ async def process_line(bot, line: str):
 
         # Hit by Player – obrażenia + wykrywanie śmierci
         match_hit_player = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+\)) )? .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
             line
         )
         if match_hit_player:
@@ -170,7 +170,7 @@ async def process_line(bot, line: str):
 
         # Hit by Infected – obrażenia + śmierć
         match_hit_infected = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
+            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+\)) )? .*hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
             line
         )
         if match_hit_infected:
@@ -221,7 +221,7 @@ async def process_line(bot, line: str):
 
     # CHAT – poprawiony regex na standard DayZ
     if "[Chat -" in line:
-        match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\] "(?P<player>[^"]+)"(?:\(id=[^)]+\))?: (?P<message>.+)', line)
+        match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=(?P<id_val>[^)]+)\)\): (?P<message>.+)', line)
         if match:
             detected_events["chat"] += 1
             channel_type = match.group("channel_type").strip()
@@ -238,7 +238,6 @@ async def process_line(bot, line: str):
 
     # Nierozpoznane
     detected_events["other"] += 1
-
     try:
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

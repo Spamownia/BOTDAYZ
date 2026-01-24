@@ -5,13 +5,23 @@ import requests
 import threading
 from flask import Flask
 import warnings
+import logging
 
 from config import DISCORD_TOKEN, CHECK_INTERVAL
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
-# Wyciszenie ostrzeżeń o niezamkniętych sesjach aiohttp (bardzo częste na Renderze)
+# ────────────────────────────────────────────────
+# Bardzo agresywne wyciszenie ostrzeżeń o niezamkniętych sesjach aiohttp
+# ────────────────────────────────────────────────
 warnings.filterwarnings("ignore", category=ResourceWarning)
+warnings.filterwarnings("ignore", message=r"Unclosed client session", category=Warning)
+warnings.filterwarnings("ignore", message=r"Unclosed.*ClientSession", category=Warning)
+
+# Wyciszenie loggerów aiohttp i asyncio (najczęściej stąd wychodzą ostrzeżenia)
+logging.getLogger("aiohttp").setLevel(logging.ERROR)
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)  # czasem też się miesza
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -109,3 +119,13 @@ if __name__ == "__main__":
         print("[MAIN] Wyłączanie bota (Ctrl+C)")
     except Exception as e:
         print(f"[MAIN FATAL] {e}")
+    finally:
+        # Ostatnia próba wyciszenia i zamknięcia loopa
+        try:
+            loop = asyncio.get_event_loop()
+            if not loop.is_closed():
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+                loop.close()
+        except:
+            pass

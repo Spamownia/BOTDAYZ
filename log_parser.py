@@ -57,6 +57,8 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+            else:
+                print(f"[JOIN] Kanał connections nie znaleziony: {CHANNEL_IDS['connections']}")
             return
 
     # 2. Rozłączono
@@ -89,6 +91,8 @@ async def process_line(bot, line: str):
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
             await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+        else:
+            print(f"[DISCONNECT] Kanał connections nie znaleziony: {CHANNEL_IDS['connections']}")
         return
 
     # 3. COT
@@ -103,6 +107,8 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
+            else:
+                print(f"[COT] Kanał admin nie znaleziony: {CHANNEL_IDS['admin']}")
             return
 
     # 4. Kille i obrażenia
@@ -124,6 +130,8 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+            else:
+                print(f"[KILL] Kanał kills nie znaleziony: {CHANNEL_IDS['kills']}")
             return
 
         # Hit by Player
@@ -152,6 +160,8 @@ async def process_line(bot, line: str):
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                else:
+                    print(f"[KILL] Kanał kills nie znaleziony")
             elif hp < 20:
                 color = "[38;5;208m"
                 emoji = "🔥"
@@ -165,6 +175,8 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["damages"])
             if ch:
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+            else:
+                print(f"[HIT] Kanał damages nie znaleziony")
             return
 
         # Hit by Infected
@@ -218,14 +230,20 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – dopasowany do Twojego logu
+    # CHAT – dopasowany idealnie do Twojego formatu z logu
     if "[Chat -" in line:
+        # Debug – zobaczymy w logach Render, czy linia trafia tutaj
+        print(f"[CHAT DEBUG] Linia chatu: {line}")
+        
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.+)', line)
         if match:
             detected_events["chat"] += 1
             channel_type = match.group("channel_type").strip()
             player = match.group("player")
             message = match.group("message").strip()
+            
+            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | {player}: {message}")
+            
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
@@ -233,7 +251,12 @@ async def process_line(bot, line: str):
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+                print(f"[CHAT] Wyslano na kanał {discord_ch_id}")
+            else:
+                print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony dla typu {channel_type}")
             return
+        else:
+            print(f"[CHAT DEBUG] Regex NIE pasuje do linii: {line}")
 
     # Nierozpoznane
     detected_events["other"] += 1

@@ -4,9 +4,14 @@ import asyncio
 import requests
 import threading
 from flask import Flask
+import warnings
+
 from config import DISCORD_TOKEN, CHECK_INTERVAL
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
+
+# Wyciszenie ostrzeżeń o niezamkniętych sesjach aiohttp (bardzo częste na Renderze)
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -20,7 +25,6 @@ flask_app = Flask(__name__)
 def home():
     return "Bot Husaria – żyje!", 200
 
-# Uruchamiamy Flask w osobnym wątku (bez zmian)
 threading.Thread(
     target=lambda: flask_app.run(host='0.0.0.0', port=10000, debug=False),
     daemon=True
@@ -56,7 +60,6 @@ async def check_logs():
                 await process_line(client, line)
             except Exception as line_err:
                 print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
-                # Nie przerywamy całej pętli – idziemy dalej
                 
     except Exception as e:
         print(f"[CHECK ERROR] {e}")
@@ -70,22 +73,22 @@ async def on_ready():
     await check_logs()
 
 # ────────────────────────────────────────────────
-#  Bezpieczne uruchamianie z backoff-em przy błędach
+# Bezpieczne uruchamianie z backoff-em przy błędach
 # ────────────────────────────────────────────────
 
 async def safe_run_bot():
     backoff = 5
-    max_backoff = 120  # max 2 minuty czekania
+    max_backoff = 120  # max 2 minuty
 
     while True:
         try:
             await client.start(DISCORD_TOKEN)
-            break  # udało się połączyć – wychodzimy z pętli
+            break
         except discord.errors.LoginFailure:
             print("[FATAL] Nieprawidłowy token – wyłączam bota")
             return
         except discord.errors.HTTPException as e:
-            if e.status in (429, 1015):  # rate limit lub Cloudflare ban
+            if e.status in (429, 1015):  # rate limit / Cloudflare
                 wait_time = backoff
                 print(f"[RATE LIMIT / 1015] Czekam {wait_time}s...")
                 await asyncio.sleep(wait_time)

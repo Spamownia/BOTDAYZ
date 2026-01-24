@@ -4,24 +4,9 @@ import asyncio
 import requests
 import threading
 from flask import Flask
-import warnings
-import logging
-
 from config import DISCORD_TOKEN, CHECK_INTERVAL
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
-
-# ────────────────────────────────────────────────
-# Bardzo agresywne wyciszenie ostrzeżeń o niezamkniętych sesjach aiohttp
-# ────────────────────────────────────────────────
-warnings.filterwarnings("ignore", category=ResourceWarning)
-warnings.filterwarnings("ignore", message=r"Unclosed client session", category=Warning)
-warnings.filterwarnings("ignore", message=r"Unclosed.*ClientSession", category=Warning)
-
-# Wyciszenie loggerów aiohttp i asyncio (najczęściej stąd wychodzą ostrzeżenia)
-logging.getLogger("aiohttp").setLevel(logging.ERROR)
-logging.getLogger("asyncio").setLevel(logging.ERROR)
-logging.getLogger("urllib3").setLevel(logging.ERROR)  # czasem też się miesza
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,16 +46,12 @@ async def check_logs():
         if not content:
             print("[CHECK] Brak nowych danych")
             return
-        
+
         lines = [l for l in content.splitlines() if l.strip()]
         print(f"[CHECK] Przetwarzam {len(lines)} linii")
-        
+
         for line in lines:
-            try:
-                await process_line(client, line)
-            except Exception as line_err:
-                print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
-                
+            await process_line(client, line)
     except Exception as e:
         print(f"[CHECK ERROR] {e}")
 
@@ -79,53 +60,8 @@ async def on_ready():
     print(f"[BOT] Gotowy – {client.user}")
     update_status.start()
     check_logs.start()
-    print("[BOT] Natychmiastowe pierwsze sprawdzenie...")
+    print("[BOT] Pierwsze sprawdzenie...")
     await check_logs()
 
-# ────────────────────────────────────────────────
-# Bezpieczne uruchamianie z backoff-em przy błędach
-# ────────────────────────────────────────────────
-
-async def safe_run_bot():
-    backoff = 5
-    max_backoff = 120  # max 2 minuty
-
-    while True:
-        try:
-            await client.start(DISCORD_TOKEN)
-            break
-        except discord.errors.LoginFailure:
-            print("[FATAL] Nieprawidłowy token – wyłączam bota")
-            return
-        except discord.errors.HTTPException as e:
-            if e.status in (429, 1015):  # rate limit / Cloudflare
-                wait_time = backoff
-                print(f"[RATE LIMIT / 1015] Czekam {wait_time}s...")
-                await asyncio.sleep(wait_time)
-                backoff = min(backoff * 2, max_backoff)
-            else:
-                print(f"[HTTP ERROR] {e} – retry za {backoff}s")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, max_backoff)
-        except Exception as e:
-            print(f"[CRITICAL ERROR] {e} – restart za {backoff}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(safe_run_bot())
-    except KeyboardInterrupt:
-        print("[MAIN] Wyłączanie bota (Ctrl+C)")
-    except Exception as e:
-        print(f"[MAIN FATAL] {e}")
-    finally:
-        # Ostatnia próba wyciszenia i zamknięcia loopa
-        try:
-            loop = asyncio.get_event_loop()
-            if not loop.is_closed():
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.run_until_complete(loop.shutdown_default_executor())
-                loop.close()
-        except:
-            pass
+    client.run(DISCORD_TOKEN)

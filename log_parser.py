@@ -1,10 +1,7 @@
 import re
 from datetime import datetime
-import os
 import time
-from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 
 player_login_times = {}
 
@@ -39,17 +36,16 @@ async def process_line(bot, line: str):
         for k in detected_events:
             detected_events[k] = 0
 
-    time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
+    time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     date_str = datetime.utcnow().strftime("%d.%m.%Y")
 
     # ===================== LOGIN =====================
     if "connected" in line.lower() and '"' in line:
-        match = re.search(r'"(?P<name>[^"]+)"\s*\((?:steamID|id|uid)?=?\s*(?P<id>\d+)\)', line)
+        match = re.search(r'"([^"]+)"\s*\((?:steamID|id|uid)?=?\s*(\d+)\)', line)
         if match:
             detected_events["join"] += 1
-            name = match.group("name").strip()
-            id_val = match.group("id")
+            name, id_val = match.groups()
             player_login_times[name] = datetime.utcnow()
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
@@ -57,29 +53,19 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # ===================== LOGOUT =====================
+    # ===================== LOGOUT (POPRAWIONE) =====================
     if any(x in line.lower() for x in ["disconnected", "kicked from server", "logout"]):
-        match = re.search(r'"(?P<name>[^"]+)"\s*\((?:steamID|id|uid)?=?\s*(?P<id>\d+)\)', line)
-
         name = None
         id_val = None
 
+        match = re.search(r'"([^"]+)"\s*\((?:steamID|id|uid)?=?\s*(\d+)\)', line)
         if match:
-            name = match.group("name").strip()
-            id_val = match.group("id")
-        else:
-            # ADM fallback: Player disconnected: Name (uid=123)
-            m2 = re.search(r'disconnected[: ]+\s*(?P<name>[^\(]+)\s*\((?:uid|id)=(?P<id>\d+)\)', line, re.IGNORECASE)
+            name, id_val = match.groups()
+
+        if not name:
+            m2 = re.search(r'disconnected[: ]+\s*([^\(]+)\s*\((?:uid|id)=(\d+)\)', line, re.IGNORECASE)
             if m2:
-                name = m2.group("name").strip()
-                id_val = m2.group("id")
-            else:
-                # ADM fallback: uid=123 disconnected
-                m3 = re.search(r'(?:uid|id)=(?P<id>\d+)', line, re.IGNORECASE)
-                if m3:
-                    id_val = m3.group("id")
-                    # próbujemy dopasować nick z loginów
-                    name = next((n for n in player_login_times.keys()), "Unknown")
+                name, id_val = m2.groups()
 
         if not name:
             name = "????"
@@ -87,6 +73,7 @@ async def process_line(bot, line: str):
             id_val = "brak"
 
         detected_events["disconnect"] += 1
+
         time_online = "nieznany"
         if name in player_login_times:
             delta = datetime.utcnow() - player_login_times[name]
@@ -99,101 +86,30 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n[31m{msg}[0m\n```")
         return
 
-    # ===================== COT =====================
-    if "[COT]" in line:
-        match = re.search(r'\[COT\]\s*(\d+):\s*(.+?)(?:\s*\[guid=(.+?)\])?$', line)
-        if match:
-            detected_events["cot"] += 1
-            steamid, action, guid = match.groups()
-            guid = guid or "brak"
-            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
-            ch = client.get_channel(CHANNEL_IDS["admin"])
-            if ch:
-                await ch.send(f"```ansi\n[37m{msg}[0m\n```")
-            return
-
-    # ===================== HIT =====================
-    if "hit by" in line:
-        match_hit = re.search(
-            r'"(?P<victim>[^"]+)".*hit by (?P<src>Player "(?P<attacker>[^"]+)"|Infected).*into (?P<part>[A-Za-z]+).*for (?P<dmg>[\d.]+).*?\((?P<ammo>[^)]+)\)',
-            line
-        )
-        if match_hit:
-            detected_events["hit"] += 1
-            victim = match_hit.group("victim")
-            attacker = match_hit.group("attacker") if match_hit.group("attacker") else "Infected"
-            part = match_hit.group("part")
-            dmg = match_hit.group("dmg")
-            ammo = match_hit.group("ammo")
-
-            hp_match = re.search(r'\[HP:\s*([\d.]+)\]', line)
-            hp = float(hp_match.group(1)) if hp_match else 100.0
-
-            if hp <= 0 or "(DEAD)" in line:
-                color = "[31m"
-                emoji = "☠️"
-                extra = " (ŚMIERĆ)"
-            elif hp < 20:
-                color = "[38;5;208m"
-                emoji = "🔥"
-                extra = f" (HP: {hp:.1f})"
-            else:
-                color = "[33m"
-                emoji = "⚡"
-                extra = f" (HP: {hp:.1f})"
-
-            msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo})"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch:
-                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
-
-    # ===================== KILL =====================
-    if "killed by" in line or "(DEAD)" in line:
-        match_kill = re.search(
-            r'"(?P<victim>[^"]+)".*killed by Player "(?P<attacker>[^"]+)".*with (?P<weapon>.+?) from (?P<dist>[\d.]+)',
-            line
-        )
-        if match_kill:
-            detected_events["kill"] += 1
-            victim, attacker, weapon, dist = match_kill.groups()
-            msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-            ch = client.get_channel(CHANNEL_IDS["kills"])
-            if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-
-    # ===================== CHAR_DEBUG =====================
-    if "CHAR_DEBUG - KILL" in line:
-        detected_events["kill"] += 1
-        match = re.search(r'player (?P<player>[^ ]+) \(dpnid = (?P<dpnid>\d+)\)', line)
-        if match:
-            player = match.group("player")
-            dpnid = match.group("dpnid")
-            msg = f"{date_str} | {log_time} ☠️ Śmierć: {player} (dpnid: {dpnid})"
-            ch = client.get_channel(CHANNEL_IDS["kills"])
-            if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-
-    # ===================== KICK / BAN =====================
-    if any(x in line.lower() for x in ["kicked", "banned", "ban added"]):
-        detected_events["kick"] += 1
-        msg = f"{date_str} | {log_time} 🚫 {line}"
-        ch = client.get_channel(CHANNEL_IDS["admin"])
-        if ch:
-            await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-        return
-
-    # ===================== CHAT =====================
+    # ===================== CHAT – FORMAT 1 (DAYZ) =====================
     if "[Chat -" in line:
         match = re.search(r'\[Chat - ([^\]]+)\].*?"([^"]+)".*?: (.+)', line)
         if match:
             detected_events["chat"] += 1
             channel_type, player, message = match.groups()
-            color_map = {"Global":"[32m","Admin":"[31m","Team":"[34m","Direct":"[37m"}
-            ansi_color = color_map.get(channel_type, "[33m")
+            ansi = {"Global":"[32m","Admin":"[31m","Team":"[34m","Direct":"[37m"}.get(channel_type, "[33m")
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
             ch = client.get_channel(CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"]))
             if ch:
-                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+                await ch.send(f"```ansi\n{ansi}{msg}[0m\n```")
+            return
+
+    # ===================== CHAT – FORMAT 2 (HUSARIABOT) =====================
+    if "💬" in line:
+        match = re.search(r'💬\s*\[([^\]]+)\]\s*([^:]+):\s*(.+)', line)
+        if match:
+            detected_events["chat"] += 1
+            channel_type, player, message = match.groups()
+            ansi = {"Global":"[32m","Admin":"[31m","Team":"[34m","Direct":"[37m"}.get(channel_type, "[33m")
+            msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
+            ch = client.get_channel(CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"]))
+            if ch:
+                await ch.send(f"```ansi\n{ansi}{msg}[0m\n```")
             return
 
     # ===================== UNPARSED =====================

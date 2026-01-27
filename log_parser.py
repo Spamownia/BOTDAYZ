@@ -60,8 +60,31 @@ async def process_line(bot, line: str):
     # ===================== LOGOUT =====================
     if any(x in line.lower() for x in ["disconnected", "kicked from server", "logout"]):
         match = re.search(r'"(?P<name>[^"]+)"\s*\((?:steamID|id|uid)?=?\s*(?P<id>\d+)\)', line)
-        name = match.group("name").strip() if match else "????"
-        id_val = match.group("id") if match else "brak"
+
+        name = None
+        id_val = None
+
+        if match:
+            name = match.group("name").strip()
+            id_val = match.group("id")
+        else:
+            # ADM fallback: Player disconnected: Name (uid=123)
+            m2 = re.search(r'disconnected[: ]+\s*(?P<name>[^\(]+)\s*\((?:uid|id)=(?P<id>\d+)\)', line, re.IGNORECASE)
+            if m2:
+                name = m2.group("name").strip()
+                id_val = m2.group("id")
+            else:
+                # ADM fallback: uid=123 disconnected
+                m3 = re.search(r'(?:uid|id)=(?P<id>\d+)', line, re.IGNORECASE)
+                if m3:
+                    id_val = m3.group("id")
+                    # próbujemy dopasować nick z loginów
+                    name = next((n for n in player_login_times.keys()), "Unknown")
+
+        if not name:
+            name = "????"
+        if not id_val:
+            id_val = "brak"
 
         detected_events["disconnect"] += 1
         time_online = "nieznany"

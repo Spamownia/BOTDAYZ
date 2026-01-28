@@ -57,14 +57,11 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
-            else:
-                print(f"[JOIN] Kanał connections nie znaleziony: {CHANNEL_IDS.get('connections', 'brak ID')}")
             return
 
-    # 2. Rozłączono
-    if ("disconnected" in line.lower() or "kicked from server" in line.lower()) and 'Player ' in line:
-        # Najpierw nazwa
-        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
+    # 2. Rozłączono – obsługa "id=Unknown" i "has been disconnected"
+    if ("disconnected" in line.lower() or "kicked from server" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
+        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))\s*\(', line, re.IGNORECASE)
         if name_match:
             name = (name_match.group(1) or name_match.group(2)).strip()
         else:
@@ -75,9 +72,8 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # ID – opcjonalne
-        id_match = re.search(r'\(\s*(?:(?:steamID|id|uid)?\s*=\s*)?([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
-        id_val = id_match.group(1).strip() if id_match else "brak"
+        id_match = re.search(r'\((?:id|steamID|uid)?=(?P<id_val>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
+        id_val = id_match.group("id_val").strip() if id_match else "brak"
 
         detected_events["disconnect"] += 1
         
@@ -89,10 +85,26 @@ async def process_line(bot, line: str):
             time_online = f"{minutes} min {seconds} s"
             del player_login_times[name]
         
-        msg = f"{date_str} | {log_time} 🔴 Rozłączono → {name} (ID: {id_val}) → {time_online}"
+        # Kick / Ban – kolor
+        is_kick = "kicked" in line.lower()
+        is_ban = "banned" in line.lower()
+        if is_ban:
+            emoji = "☠️"
+            color = "[31m"
+            extra = " (BAN)"
+        elif is_kick:
+            emoji = "⚡"
+            color = "[38;5;208m"
+            extra = " (KICK)"
+        else:
+            emoji = "🔴"
+            color = "[31m"
+            extra = ""
+        
+        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {id_val}) → {time_online}{extra}"
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
-            await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+            await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
     # 3. COT
@@ -109,7 +121,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Hit / Kill – rozszerzone o format z logów (Infected + HP)
+    # 4. Hit / Kill
     if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line:
         hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
         hp = float(hp_match.group("hp")) if hp_match else None
@@ -210,19 +222,18 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – dopasowany do formatu z Twojego logu ADM
+    # CHAT – dopasowany do formatu z Twojego ADM
     if "[Chat -" in line:
-        print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")  # Debug w logach Render
+        print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
         
-        # Główny regex – pasuje do [Chat - Typ]("Nick"(id=...)): wiadomość
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
             detected_events["chat"] += 1
             channel_type = match.group("channel_type").strip()
             player = match.group("player").strip()
-            message = match.group("message").strip() or "[brak wiadomości]"
+            message = match.group("message").strip() or "[brak]"
             
-            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: {message}")
+            print(f"[CHAT DEBUG] Rozpoznano: Typ={channel_type}, Gracz={player}, Wiadomość='{message}'")
             
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
@@ -244,5 +255,6 @@ async def process_line(bot, line: str):
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
             f.write(f"{timestamp} | {line}\n")
+        print(f"[OTHER] Linia nierozpoznana zapisana: {line[:100]}...")
     except Exception as e:
         print(f"[BŁĄD ZAPISU UNPARSED] {e}")

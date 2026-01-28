@@ -57,11 +57,14 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+            else:
+                print(f"[JOIN] Kanał connections nie znaleziony: {CHANNEL_IDS.get('connections', 'brak ID')}")
             return
 
     # 2. Rozłączono
     if ("disconnected" in line.lower() or "kicked from server" in line.lower()) and 'Player ' in line:
-        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))\s*\(', line, re.IGNORECASE)
+        # Najpierw nazwa
+        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
         if name_match:
             name = (name_match.group(1) or name_match.group(2)).strip()
         else:
@@ -72,7 +75,8 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        id_match = re.search(r'\(\s*(?:(?:steamID|id|uid)\s*=\s*)?([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
+        # ID – opcjonalne
+        id_match = re.search(r'\(\s*(?:(?:steamID|id|uid)?\s*=\s*)?([^)\s]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
         id_val = id_match.group(1).strip() if id_match else "brak"
 
         detected_events["disconnect"] += 1
@@ -105,21 +109,19 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Kille i obrażenia
-    if any(kw in line for kw in ["hit by", "killed by", "CHAR_DEBUG - KILL"]):
+    # 4. Hit / Kill – rozszerzone o format z logów (Infected + HP)
+    if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line:
+        hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
+        hp = float(hp_match.group("hp")) if hp_match else None
 
-        # Pełny kill
-        match_kill = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            line
-        )
+        # Kill (gracz)
+        match_kill = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
             victim = match_kill.group("victim")
             attacker = match_kill.group("attacker")
             weapon = match_kill.group("weapon")
             dist = match_kill.group("dist")
-            
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
@@ -127,10 +129,7 @@ async def process_line(bot, line: str):
             return
 
         # Hit by Player
-        match_hit_player = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            line
-        )
+        match_hit_player = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
         if match_hit_player:
             detected_events["hit"] += 1
             victim = match_hit_player.group("victim")
@@ -140,9 +139,7 @@ async def process_line(bot, line: str):
             ammo = match_hit_player.group("ammo")
             weapon = match_hit_player.group("weapon")
             dist = match_hit_player.group("dist")
-            hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
-            hp = float(hp_match.group("hp")) if hp_match else 100.0
-            is_dead = hp <= 0 or "(DEAD)" in line
+            is_dead = hp is not None and hp <= 0 or "(DEAD)" in line
 
             if is_dead:
                 color = "[31m"
@@ -152,14 +149,14 @@ async def process_line(bot, line: str):
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp < 20:
+            elif hp is not None and hp < 20:
                 color = "[38;5;208m"
                 emoji = "🔥"
                 extra = f" (HP: {hp:.1f})"
             else:
                 color = "[33m"
                 emoji = "⚡"
-                extra = f" (HP: {hp:.1f})"
+                extra = f" (HP: {hp:.1f})" if hp is not None else ""
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
             ch = client.get_channel(CHANNEL_IDS["damages"])
@@ -168,19 +165,14 @@ async def process_line(bot, line: str):
             return
 
         # Hit by Infected
-        match_hit_infected = re.search(
-            r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
-            line
-        )
+        match_hit_infected = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)', line)
         if match_hit_infected:
             detected_events["hit"] += 1
             victim = match_hit_infected.group("victim")
             part = match_hit_infected.group("part")
             dmg = match_hit_infected.group("dmg")
             ammo = match_hit_infected.group("ammo")
-            hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
-            hp = float(hp_match.group("hp")) if hp_match else 100.0
-            is_dead = hp <= 0 or "(DEAD)" in line
+            is_dead = hp is not None and hp <= 0 or "(DEAD)" in line
 
             if is_dead:
                 color = "[31m"
@@ -190,14 +182,14 @@ async def process_line(bot, line: str):
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp < 20:
+            elif hp is not None and hp < 20:
                 color = "[38;5;208m"
                 emoji = "🔥"
                 extra = f" (HP: {hp:.1f})"
             else:
                 color = "[33m"
                 emoji = "⚡"
-                extra = f" (HP: {hp:.1f})"
+                extra = f" (HP: {hp:.1f})" if hp is not None else ""
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez Infected w {part} za {dmg} dmg ({ammo})"
             ch = client.get_channel(CHANNEL_IDS["damages"])
@@ -218,20 +210,19 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – dopasowany do formatu z logów ADM
+    # CHAT – dopasowany do formatu z Twojego logu ADM
     if "[Chat -" in line:
-        # Debug: pokaż linię w logach Render
-        print(f"[CHAT DEBUG] Linia do przetworzenia: {line}")
+        print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")  # Debug w logach Render
         
-        # Główny regex – dopasowany do [Chat - Typ]("Nick"(id=...)): wiadomość
+        # Główny regex – pasuje do [Chat - Typ]("Nick"(id=...)): wiadomość
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
             detected_events["chat"] += 1
             channel_type = match.group("channel_type").strip()
             player = match.group("player").strip()
-            message = match.group("message").strip()
+            message = match.group("message").strip() or "[brak wiadomości]"
             
-            print(f"[CHAT DEBUG] Rozpoznano: Typ={channel_type}, Gracz={player}, Wiadomość='{message}'")
+            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: {message}")
             
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
@@ -245,7 +236,7 @@ async def process_line(bot, line: str):
                 print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony dla typu {channel_type}")
             return
         else:
-            print(f"[CHAT DEBUG] Regex NIE pasuje – linia idzie do other: {line}")
+            print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")
 
     # Nierozpoznane
     detected_events["other"] += 1
@@ -253,6 +244,5 @@ async def process_line(bot, line: str):
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
             f.write(f"{timestamp} | {line}\n")
-        print(f"[OTHER] Linia nierozpoznana zapisana do unparsed: {line[:100]}...")
     except Exception as e:
         print(f"[BŁĄD ZAPISU UNPARSED] {e}")

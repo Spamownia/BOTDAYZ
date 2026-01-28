@@ -23,14 +23,14 @@ CHANNEL_IDS = {
     "damages":     1464697107842863348,   # ← Nowy kanał dla obrażeń (zmień ID na prawdziwy !!!)
     "admin":       1464697107842863348,
     "chat":        1464697107842863348,
-    "debug":       1464697107842863348,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
+    "debug":       None,   # ← ZMIEŃ NA PRAWDZIWE ID KANAŁU DEBUG !!!
 }
 
 CHAT_CHANNEL_MAPPING = {
     "Global": 1464697107842863348,
     "Admin":  1464697107842863348,
     "Team":   1464697107842863348,
-    "Direct": None,
+    "Direct": 1464697107842863348,
     "Unknown":1464697107842863348
 }
 

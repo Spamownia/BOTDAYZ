@@ -45,53 +45,108 @@ class DayZLogWatcher:
         except Exception as e:
             print(f"[FTP WATCHER] Błąd zapisu pozycji: {e}")
 
-    def connect_and_debug(self):
+    def connect(self, max_retries=3):
+        """Stabilne połączenie z retry i timeoutami"""
         if self.ftp:
             try:
                 self.ftp.voidcmd("NOOP")
+                print("[FTP WATCHER] Połączenie nadal aktywne")
                 return True
             except:
                 print("[FTP WATCHER] Stare połączenie padło – reconnect")
                 self.ftp = None
 
-        try:
-            print(f"[FTP WATCHER] Łączenie: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
-            self.ftp = FTP(timeout=30)
-            self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
-            self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
-            self.ftp.cwd(FTP_LOG_DIR)
-            print(f"[FTP WATCHER] cwd OK → {self.ftp.pwd()}")
-            self.ftp.set_pasv(True)
-            return True
-        except Exception as e:
-            print(f"[FTP WATCHER] Błąd połączenia: {e}")
-            self.ftp = None
-            return False
+        for attempt in range(max_retries):
+            try:
+                print(f"[FTP WATCHER] Próba połączenia {attempt+1}/{max_retries}: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
+                self.ftp = FTP(timeout=30)
+                self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
+                self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
+                self.ftp.cwd(FTP_LOG_DIR)
+                print(f"[FTP WATCHER] Połączono i cwd OK → {self.ftp.pwd()}")
+                self.ftp.set_pasv(True)
+                return True
+            except Exception as e:
+                print(f"[FTP WATCHER] Błąd połączenia (próba {attempt+1}): {e}")
+                self.ftp = None
+                time.sleep(5 * (attempt + 1))  # backoff: 5s, 10s, 15s...
+        
+        print(f"[FTP WATCHER] Nie udało się połączyć po {max_retries} próbach")
+        return False
 
     def get_latest_files(self):
-        if not self.connect_and_debug():
+        """Pobiera najnowsze pliki .RPT i .ADM"""
+        if not self.connect():
             return None, None
 
         try:
             files_lines = []
             self.ftp.dir(files_lines.append)
-
-            rpt_files = [f for f in files_lines if f.lower().endswith('.rpt')]
-            adm_files = [f for f in files_lines if f.lower().endswith('.adm')]
-
-            # Wyciągamy nazwy plików (ostatnia część linii po dacie/czasie/rozmiarze)
-            latest_rpt = max((line.split()[-1] for line in rpt_files), key=str, default=None)
-            latest_adm = max((line.split()[-1] for line in adm_files), key=str, default=None)
+            rpt_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.rpt')]
+            adm_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.adm')]
+            
+            latest_rpt = max(rpt_files, key=str, default=None) if rpt_files else None
+            latest_adm = max(adm_files, key=str, default=None) if adm_files else None
 
             print(f"[FTP WATCHER] Najnowszy .RPT: {latest_rpt}")
             print(f"[FTP WATCHER] Najnowszy .ADM: {latest_adm}")
-
             return latest_rpt, latest_adm
         except Exception as e:
             print(f"[FTP WATCHER] Błąd listowania plików: {e}")
             return None, None
 
+    def _get_content(self, filename, file_type):
+        """Pobiera nowe dane z pliku z resetem pozycji przy rotacji"""
+        if not self.connect():
+            return ""
+
+        try:
+            size = self.ftp.size(filename)
+            print(f"[FTP WATCHER] {filename} → {size:,} bajtów")
+
+            last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
+            last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
+
+            # Reset przy nowym pliku (rotacja logów)
+            if filename != last_file or last_file is None:
+                print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
+                last_pos = max(0, size - 5_000_000)  # ostatnie 5 MB starego pliku
+
+            if last_pos >= size:
+                print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")
+                return ""
+
+            data = bytearray()
+            self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_pos)
+            text = data.decode('utf-8', errors='replace')
+
+            # Pomijamy niepełną linię na początku
+            if text and '\n' in text:
+                text = text[text.index('\n') + 1:]
+
+            lines_count = len(text.splitlines())
+            print(f"[FTP WATCHER] Pobrano {lines_count} nowych linii z {filename} (od {last_pos:,} do {size:,} bajtów)")
+
+            if text:
+                preview = text[:200].replace('\n', ' | ')
+                print(f"[FTP WATCHER PREVIEW {file_type.upper()}] {preview}...")
+
+            # Aktualizacja pozycji
+            if file_type == 'rpt':
+                self.last_rpt = filename
+                self.last_rpt_pos = size
+            else:
+                self.last_adm = filename
+                self.last_adm_pos = size
+
+            return text
+
+        except Exception as e:
+            print(f"[FTP WATCHER] Błąd pobierania {filename}: {e}")
+            return ""
+
     def get_new_content(self):
+        """Główna metoda – pobiera nowe dane z najnowszych plików"""
         latest_rpt, latest_adm = self.get_latest_files()
         if not latest_rpt and not latest_adm:
             return ""
@@ -113,47 +168,3 @@ class DayZLogWatcher:
             self._save_last_positions()
 
         return "\n".join(contents)
-
-    def _get_content(self, filename, file_type):
-        try:
-            size = self.ftp.size(filename)
-            print(f"[FTP WATCHER] {filename} → {size:,} bajtów")
-
-            last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
-            last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
-
-            # Jeśli plik się zmienił (nowy log po rotacji) → startujemy od końca - 5 MB
-            if filename != last_file or last_file is None:
-                print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
-                last_pos = max(0, size - 5_000_000)
-
-            if last_pos >= size:
-                print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")
-                return ""
-
-            data = bytearray()
-            self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_pos)
-
-            text = data.decode('utf-8', errors='replace')
-            if text and '\n' in text:
-                text = text[text.index('\n') + 1:]  # pomijamy niepełną linię na początku
-
-            lines_count = len(text.splitlines())
-            print(f"[FTP WATCHER] Pobrano {lines_count} nowych linii z {filename} (od {last_pos:,} do {size:,} bajtów)")
-
-            if text:
-                preview = text[:200].replace('\n', ' | ')
-                print(f"[FTP WATCHER PREVIEW {file_type.upper()}] {preview}...")
-
-            # Aktualizacja pozycji
-            if file_type == 'rpt':
-                self.last_rpt = filename
-                self.last_rpt_pos = size
-            else:
-                self.last_adm = filename
-                self.last_adm_pos = size
-
-            return text
-        except Exception as e:
-            print(f"[FTP WATCHER] Błąd pobierania {filename}: {e}")
-            return ""

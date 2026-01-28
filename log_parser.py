@@ -7,7 +7,7 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 
 player_login_times = {}
-guid_to_name = {}  # Nowe mapowanie guid -> nick dla KICK/BAN
+guid_to_name = {}  # Mapowanie guid -> nick dla KICK/BAN
 
 UNPARSED_LOG = "unparsed_lines.log"
 
@@ -46,15 +46,15 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Połączono – dodajemy mapowanie guid -> nick
+    # 1. Połączono – mapowanie guid -> nick
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<id_val>[^)]+)\) is connected', line)
+        match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<guid>[^)]+)\) is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group("name").strip()
-            guid = match.group("id_val")
+            guid = match.group("guid")
             player_login_times[name] = datetime.utcnow()
-            guid_to_name[guid] = name  # Mapowanie guid -> nick
+            guid_to_name[guid] = name  # Zapamiętaj nick po guid
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
@@ -64,15 +64,12 @@ async def process_line(bot, line: str):
     # 2. Rozłączono + Kick/Ban – nick z guid_to_name jeśli dostępne
     if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
-        if name_match:
-            name = (name_match.group(1) or name_match.group(2)).strip()
-        else:
-            name = "????"
+        name = (name_match.group(1) or name_match.group(2)).strip() if name_match else "????"
 
-        id_match = re.search(r'\((?:id|steamID|uid)?=(?P<id_val>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
-        guid = id_match.group("id_val").strip() if id_match else "brak"
+        id_match = re.search(r'\((?:id|steamID|uid)?=(?P<guid>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
+        guid = id_match.group("guid").strip() if id_match else "brak"
 
-        # Jeśli guid istnieje, użyj nicka z mapy (lepsze niż ????)
+        # Użyj nicka z mapy jeśli guid istnieje
         if guid in guid_to_name:
             name = guid_to_name[guid]
 
@@ -95,7 +92,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[33m"
+            color = "[38;5;208m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
@@ -108,7 +105,7 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
-    # 3. COT + Kick from COT – pomarańczowy ⚡ z nickiem z guid_to_name
+    # 3. COT + Kick from COT – pomarańczowy z nickiem
     if "[COT]" in line:
         if "Kicked" in line:
             detected_events["disconnect"] += 1
@@ -133,13 +130,13 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Hit / Kill
-    if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line:
+    # 4. Hit / Kill – ulepszony regex z obsługą pos= i [HP: ...]
+    if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line or "died." in line:
         hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
         hp = float(hp_match.group("hp")) if hp_match else None
 
-        # Kill
-        match_kill = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
+        # Kill (gracz)
+        match_kill = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: [\d.]+\] .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
             victim = match_kill.group("victim")
@@ -152,8 +149,8 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-        # Hit by Player
-        match_hit_player = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
+        # Hit by Player – ulepszony regex z pos=
+        match_hit_player = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
         if match_hit_player:
             detected_events["hit"] += 1
             victim = match_hit_player.group("victim")
@@ -163,7 +160,8 @@ async def process_line(bot, line: str):
             ammo = match_hit_player.group("ammo")
             weapon = match_hit_player.group("weapon")
             dist = match_hit_player.group("dist")
-            is_dead = hp is not None and hp <= 0 or "(DEAD)" in line
+            hp = float(match_hit_player.group("hp"))
+            is_dead = hp <= 0 or "(DEAD)" in line
 
             if is_dead:
                 color = "[31m"
@@ -173,14 +171,14 @@ async def process_line(bot, line: str):
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp is not None and hp < 20:
+            elif hp < 20:
                 color = "[38;5;208m"
                 emoji = "🔥"
                 extra = f" (HP: {hp:.1f})"
             else:
                 color = "[33m"
                 emoji = "⚡"
-                extra = f" (HP: {hp:.1f})" if hp is not None else ""
+                extra = f" (HP: {hp:.1f})"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
             ch = client.get_channel(CHANNEL_IDS["damages"])
@@ -188,15 +186,16 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
             return
 
-        # Hit by Infected
-        match_hit_infected = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)', line)
+        # Hit by Infected – ulepszony regex z pos=
+        match_hit_infected = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)', line)
         if match_hit_infected:
             detected_events["hit"] += 1
             victim = match_hit_infected.group("victim")
             part = match_hit_infected.group("part")
             dmg = match_hit_infected.group("dmg")
             ammo = match_hit_infected.group("ammo")
-            is_dead = hp is not None and hp <= 0 or "(DEAD)" in line
+            hp = float(match_hit_infected.group("hp"))
+            is_dead = hp <= 0 or "(DEAD)" in line
 
             if is_dead:
                 color = "[31m"
@@ -206,19 +205,31 @@ async def process_line(bot, line: str):
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp is not None and hp < 20:
+            elif hp < 20:
                 color = "[38;5;208m"
                 emoji = "🔥"
                 extra = f" (HP: {hp:.1f})"
             else:
                 color = "[33m"
                 emoji = "⚡"
-                extra = f" (HP: {hp:.1f})" if hp is not None else ""
+                extra = f" (HP: {hp:.1f})"
 
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez Infected w {part} za {dmg} dmg ({ammo})"
             ch = client.get_channel(CHANNEL_IDS["damages"])
             if ch:
                 await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+            return
+
+        # Dodatkowe obsługa "died." jako śmierć (np. od zombie lub innych)
+        if "died." in line:
+            detected_events["kill"] += 1
+            match = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\) died.', line)
+            if match:
+                victim = match.group("victim")
+                msg = f"{date_str} | {log_time} ☠️ {victim} zmarł (died.)"
+                ch = client.get_channel(CHANNEL_IDS["kills"])
+                if ch:
+                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
         # CHAR_DEBUG - KILL
@@ -234,7 +245,7 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – poprawiony regex + fallback na connections dla Direct
+    # CHAT – bez zmian
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
         

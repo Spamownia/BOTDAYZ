@@ -1,285 +1,170 @@
-import re
-from datetime import datetime
-import os
+from ftplib import FTP
 import time
-from discord import Embed
-from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
+import json
+import os
+from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
-player_login_times = {}
-guid_to_name = {}  # Mapowanie guid -> nick dla KICK/BAN
+LAST_POSITIONS_FILE = 'last_positions.json'
 
-UNPARSED_LOG = "unparsed_lines.log"
+class DayZLogWatcher:
+    def __init__(self):
+        self.ftp = None
+        self.last_rpt = None
+        self.last_adm = None
+        self.last_rpt_pos = 0
+        self.last_adm_pos = 0
+        self._load_last_positions()
+        print("[FTP WATCHER] Inicjalizacja – pamięć pozycji z JSON")
 
-SUMMARY_INTERVAL = 30
-last_summary_time = time.time()
-processed_count = 0
-detected_events = {
-    "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0
-}
-
-async def process_line(bot, line: str):
-    global last_summary_time, processed_count
-    
-    client = bot
-    line = line.strip()
-    if not line:
-        return
-
-    processed_count += 1
-    now = time.time()
-    if now - last_summary_time >= SUMMARY_INTERVAL:
-        summary = f"[PARSER SUMMARY @ {datetime.utcnow().strftime('%H:%M:%S')}] {processed_count} linii | "
-        summary += " | ".join(f"{k}: {v}" for k, v in detected_events.items() if v > 0)
-        if not any(detected_events.values()):
-            summary += " (nic nie wykryto)"
-        print(summary)
-        
-        last_summary_time = now
-        processed_count = 0
-        for k in detected_events:
-            detected_events[k] = 0
-
-    time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
-    log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
-
-    today = datetime.utcnow()
-    date_str = today.strftime("%d.%m.%Y")
-
-    # 1. Połączono – mapowanie guid -> nick
-    if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<guid>[^)]+)\) is connected', line)
-        if match:
-            detected_events["join"] += 1
-            name = match.group("name").strip()
-            guid = match.group("guid")
-            player_login_times[name] = datetime.utcnow()
-            guid_to_name[guid] = name  # Zapamiętaj nick po guid
-            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch:
-                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
-            return
-
-    # 2. Rozłączono + Kick/Ban – nick z guid_to_name jeśli dostępne
-    if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
-        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
-        name = (name_match.group(1) or name_match.group(2)).strip() if name_match else "????"
-
-        id_match = re.search(r'\((?:id|steamID|uid)?=(?P<guid>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
-        guid = id_match.group("guid").strip() if id_match else "brak"
-
-        # Użyj nicka z mapy jeśli guid istnieje
-        if guid in guid_to_name:
-            name = guid_to_name[guid]
-
-        detected_events["disconnect"] += 1
-        
-        time_online = "nieznany"
-        if name in player_login_times:
-            delta = datetime.utcnow() - player_login_times[name]
-            minutes = int(delta.total_seconds() // 60)
-            seconds = int(delta.total_seconds() % 60)
-            time_online = f"{minutes} min {seconds} s"
-            del player_login_times[name]
-
-        is_kick = "kicked" in line.lower() or "Kicked" in line
-        is_ban = "banned" in line.lower() or "Banned" in line
-
-        if is_ban:
-            emoji = "☠️"
-            color = "[31m"
-            extra = " (BAN)"
-        elif is_kick:
-            emoji = "⚡"
-            color = "[38;5;208m"
-            extra = " (KICK)"
+    def _load_last_positions(self):
+        if os.path.exists(LAST_POSITIONS_FILE):
+            try:
+                with open(LAST_POSITIONS_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.last_rpt = data.get('last_rpt')
+                    self.last_adm = data.get('last_adm')
+                    self.last_rpt_pos = int(data.get('last_rpt_pos', 0))
+                    self.last_adm_pos = int(data.get('last_adm_pos', 0))
+                    print(f"[FTP WATCHER] Załadowano pozycje: RPT={self.last_rpt} @ {self.last_rpt_pos:,} bajtów | ADM={self.last_adm} @ {self.last_adm_pos:,} bajtów")
+            except Exception as e:
+                print(f"[FTP WATCHER] Błąd ładowania pozycji: {e} – start od zera")
         else:
-            emoji = "🔴"
-            color = "[31m"
-            extra = ""
+            print("[FTP WATCHER] Brak pliku pozycji – start od zera")
 
-        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
-        ch = client.get_channel(CHANNEL_IDS["connections"])
-        if ch:
-            await ch.send(f"```ansi\n{color}{msg}[0m\n```")
-        return
+    def _save_last_positions(self):
+        data = {
+            'last_rpt': self.last_rpt,
+            'last_adm': self.last_adm,
+            'last_rpt_pos': self.last_rpt_pos,
+            'last_adm_pos': self.last_adm_pos
+        }
+        try:
+            with open(LAST_POSITIONS_FILE, 'w') as f:
+                json.dump(data, f)
+            print(f"[FTP WATCHER] Zapisano aktualne pozycje: RPT@{self.last_rpt_pos:,} | ADM@{self.last_adm_pos:,}")
+        except Exception as e:
+            print(f"[FTP WATCHER] Błąd zapisu pozycji: {e}")
 
-    # 3. COT + Kick from COT – pomarańczowy z nickiem
-    if "[COT]" in line:
-        if "Kicked" in line:
-            detected_events["disconnect"] += 1
-            match = re.search(r'Kicked \[guid=(?P<guid>[^\]]+)\]', line)
-            guid = match.group("guid") if match else "brak"
-            name = guid_to_name.get(guid, "????")
-            msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch:
-                await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
-            return
+    def connect(self, max_retries=3):
+        """Stabilne połączenie z retry i timeoutami"""
+        if self.ftp:
+            try:
+                self.ftp.voidcmd("NOOP")
+                print("[FTP WATCHER] Połączenie nadal aktywne")
+                return True
+            except:
+                print("[FTP WATCHER] Stare połączenie padło – reconnect")
+                self.ftp = None
 
-        match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
-        if match:
-            detected_events["cot"] += 1
-            steamid = match.group("steamid")
-            action = match.group("action").strip()
-            guid = match.group("guid") or "brak"
-            msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
-            ch = client.get_channel(CHANNEL_IDS["admin"])
-            if ch:
-                await ch.send(f"```ansi\n[37m{msg}[0m\n```")
-            return
-
-    # 4. Hit / Kill – ulepszony regex z obsługą pos= i [HP: ...]
-    if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line or "died." in line:
-        hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
-        hp = float(hp_match.group("hp")) if hp_match else None
-
-        # Kill (gracz)
-        match_kill = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: [\d.]+\] .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
-        if match_kill:
-            detected_events["kill"] += 1
-            victim = match_kill.group("victim")
-            attacker = match_kill.group("attacker")
-            weapon = match_kill.group("weapon")
-            dist = match_kill.group("dist")
-            msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-            ch = client.get_channel(CHANNEL_IDS["kills"])
-            if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-            return
-
-        # Hit by Player – ulepszony regex z pos=
-        match_hit_player = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
-        if match_hit_player:
-            detected_events["hit"] += 1
-            victim = match_hit_player.group("victim")
-            attacker = match_hit_player.group("attacker")
-            part = match_hit_player.group("part")
-            dmg = match_hit_player.group("dmg")
-            ammo = match_hit_player.group("ammo")
-            weapon = match_hit_player.group("weapon")
-            dist = match_hit_player.group("dist")
-            hp = float(match_hit_player.group("hp"))
-            is_dead = hp <= 0 or "(DEAD)" in line
-
-            if is_dead:
-                color = "[31m"
-                emoji = "☠️"
-                extra = " (ŚMIERĆ)"
-                kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-                kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                if kill_ch:
-                    await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp < 20:
-                color = "[38;5;208m"
-                emoji = "🔥"
-                extra = f" (HP: {hp:.1f})"
-            else:
-                color = "[33m"
-                emoji = "⚡"
-                extra = f" (HP: {hp:.1f})"
-
-            msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch:
-                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
-            return
-
-        # Hit by Infected – ulepszony regex z pos=
-        match_hit_infected = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Infected .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)', line)
-        if match_hit_infected:
-            detected_events["hit"] += 1
-            victim = match_hit_infected.group("victim")
-            part = match_hit_infected.group("part")
-            dmg = match_hit_infected.group("dmg")
-            ammo = match_hit_infected.group("ammo")
-            hp = float(match_hit_infected.group("hp"))
-            is_dead = hp <= 0 or "(DEAD)" in line
-
-            if is_dead:
-                color = "[31m"
-                emoji = "☠️"
-                extra = " (ŚMIERĆ)"
-                kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez Infected w {part} za {dmg} dmg"
-                kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                if kill_ch:
-                    await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-            elif hp < 20:
-                color = "[38;5;208m"
-                emoji = "🔥"
-                extra = f" (HP: {hp:.1f})"
-            else:
-                color = "[33m"
-                emoji = "⚡"
-                extra = f" (HP: {hp:.1f})"
-
-            msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez Infected w {part} za {dmg} dmg ({ammo})"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch:
-                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
-            return
-
-        # Dodatkowe obsługa "died." jako śmierć (np. od zombie lub innych)
-        if "died." in line:
-            detected_events["kill"] += 1
-            match = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\) died.', line)
-            if match:
-                victim = match.group("victim")
-                msg = f"{date_str} | {log_time} ☠️ {victim} zmarł (died.)"
-                ch = client.get_channel(CHANNEL_IDS["kills"])
-                if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-            return
-
-        # CHAR_DEBUG - KILL
-        if "CHAR_DEBUG - KILL" in line:
-            detected_events["kill"] += 1
-            match = re.search(r'player (?P<player>[^ ]+) \(dpnid = (?P<dpnid>\d+)\)', line)
-            if match:
-                player = match.group("player")
-                dpnid = match.group("dpnid")
-                msg = f"{date_str} | {log_time} ☠️ Śmierć: {player} (dpnid: {dpnid})"
-                ch = client.get_channel(CHANNEL_IDS["kills"])
-                if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-            return
-
-    # CHAT – bez zmian
-    if "[Chat -" in line:
-        print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
+        for attempt in range(max_retries):
+            try:
+                print(f"[FTP WATCHER] Próba połączenia {attempt+1}/{max_retries}: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
+                self.ftp = FTP(timeout=30)
+                self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
+                self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
+                self.ftp.cwd(FTP_LOG_DIR)
+                print(f"[FTP WATCHER] Połączono i cwd OK → {self.ftp.pwd()}")
+                self.ftp.set_pasv(True)
+                return True
+            except Exception as e:
+                print(f"[FTP WATCHER] Błąd połączenia (próba {attempt+1}): {e}")
+                self.ftp = None
+                time.sleep(5 * (attempt + 1))  # backoff: 5s, 10s, 15s...
         
-        match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
-        if match:
-            detected_events["chat"] += 1
-            channel_type = match.group("channel_type").strip()
-            player = match.group("player").strip()
-            message = match.group("message").strip() or "[brak]"
+        print(f"[FTP WATCHER] Nie udało się połączyć po {max_retries} próbach")
+        return False
 
-            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
+    def get_latest_files(self):
+        """Pobiera najnowsze pliki .RPT i .ADM"""
+        if not self.connect():
+            return None, None
+
+        try:
+            files_lines = []
+            self.ftp.dir(files_lines.append)
+            rpt_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.rpt')]
+            adm_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.adm')]
             
-            color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
-            ansi_color = color_map.get(channel_type, color_map["Unknown"])
-            msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
-            ch = client.get_channel(discord_ch_id)
-            if ch:
-                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
-                print(f"[CHAT] Wysłano na kanał {discord_ch_id} ({channel_type})")
-            else:
-                print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony – fallback do connections")
-                fallback_ch = client.get_channel(CHANNEL_IDS["connections"])
-                if fallback_ch:
-                    await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
-            return
-        else:
-            print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")
+            latest_rpt = max(rpt_files, key=str, default=None) if rpt_files else None
+            latest_adm = max(adm_files, key=str, default=None) if adm_files else None
 
-    # Nierozpoznane
-    detected_events["other"] += 1
-    try:
-        timestamp = datetime.utcnow().isoformat()
-        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
-            f.write(f"{timestamp} | {line}\n")
-    except Exception as e:
-        print(f"[BŁĄD ZAPISU UNPARSED] {e}")
+            print(f"[FTP WATCHER] Najnowszy .RPT: {latest_rpt}")
+            print(f"[FTP WATCHER] Najnowszy .ADM: {latest_adm}")
+            return latest_rpt, latest_adm
+        except Exception as e:
+            print(f"[FTP WATCHER] Błąd listowania plików: {e}")
+            return None, None
+
+    def _get_content(self, filename, file_type):
+        """Pobiera nowe dane z pliku z resetem pozycji przy rotacji"""
+        if not self.connect():
+            return ""
+
+        try:
+            size = self.ftp.size(filename)
+            print(f"[FTP WATCHER] {filename} → {size:,} bajtów")
+
+            last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
+            last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
+
+            # Reset przy nowym pliku (rotacja logów)
+            if filename != last_file or last_file is None:
+                print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
+                last_pos = max(0, size - 5_000_000)  # ostatnie 5 MB starego pliku
+
+            if last_pos >= size:
+                print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")
+                return ""
+
+            data = bytearray()
+            self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_pos)
+            text = data.decode('utf-8', errors='replace')
+
+            # Pomijamy niepełną linię na początku
+            if text and '\n' in text:
+                text = text[text.index('\n') + 1:]
+
+            lines_count = len(text.splitlines())
+            print(f"[FTP WATCHER] Pobrano {lines_count} nowych linii z {filename} (od {last_pos:,} do {size:,} bajtów)")
+
+            if text:
+                preview = text[:200].replace('\n', ' | ')
+                print(f"[FTP WATCHER PREVIEW {file_type.upper()}] {preview}...")
+
+            # Aktualizacja pozycji
+            if file_type == 'rpt':
+                self.last_rpt = filename
+                self.last_rpt_pos = size
+            else:
+                self.last_adm = filename
+                self.last_adm_pos = size
+
+            return text
+
+        except Exception as e:
+            print(f"[FTP WATCHER] Błąd pobierania {filename}: {e}")
+            return ""
+
+    def get_new_content(self):
+        """Główna metoda – pobiera nowe dane z najnowszych plików"""
+        latest_rpt, latest_adm = self.get_latest_files()
+        if not latest_rpt and not latest_adm:
+            return ""
+
+        contents = []
+
+        if latest_rpt:
+            content_rpt = self._get_content(latest_rpt, 'rpt')
+            if content_rpt:
+                contents.append(content_rpt)
+
+        if latest_adm:
+            content_adm = self._get_content(latest_adm, 'adm')
+            if content_adm:
+                contents.append(content_adm)
+
+        # Zapisujemy pozycje TYLKO jeśli coś faktycznie przeczytaliśmy
+        if contents:
+            self._save_last_positions()
+
+        return "\n".join(contents)

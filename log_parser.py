@@ -93,12 +93,12 @@ async def process_line(bot, line: str):
             color = "[31m"
             extra = " (BAN)"
         elif is_kick:
-            emoji = "⚡"
-            color = "[33m"
-            extra = " (KICK)"
-        else:
             emoji = "🔴"
             color = "[31m"
+            extra = " (KICK)"
+        else:
+            emoji = "⚡"
+            color = "[38;5;208m"
             extra = ""
 
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
@@ -218,20 +218,21 @@ async def process_line(bot, line: str):
                 dist = match_hit_player.group("dist")
                 hp = float(match_hit_player.group("hp"))
 
+                # Zmiana: wszystkie hity pomarańczowe
+                color = "[38;5;208m"
                 if is_dead:
-                    color = "[31m"
                     emoji = "☠️"
-                    extra = " (ŚMIERĆ)"
-                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                    if kill_ch:
-                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                    extra = ""
+                    # Scalona wiadomość o śmierci
+                    msg = f"{date_str} | {log_time} ☠️ {victim} ZABITY przez {attacker} ({ammo})"
+                    ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if ch:
+                        await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    return  # Kończymy - nie wysyłamy hitu
                 elif hp < 20:
-                    color = "[33m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[38;5;226m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 
@@ -262,20 +263,21 @@ async def process_line(bot, line: str):
                 weapon = match_hit_player_simple.group("weapon")
                 dist = match_hit_player_simple.group("dist")
 
+                # Zmiana: wszystkie hity pomarańczowe
+                color = "[38;5;208m"
                 if is_dead:
-                    color = "[31m"
                     emoji = "☠️"
-                    extra = " (ŚMIERĆ)"
-                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                    if kill_ch:
-                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                    extra = ""
+                    # Scalona wiadomość o śmierci
+                    msg = f"{date_str} | {log_time} ☠️ {victim} ZABITY przez {attacker} ({ammo})"
+                    ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if ch:
+                        await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    return  # Kończymy - nie wysyłamy hitu
                 elif hp < 20:
-                    color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[33m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 
@@ -302,20 +304,21 @@ async def process_line(bot, line: str):
                 dmg = match_hit_infected.group("dmg")
                 ammo = match_hit_infected.group("ammo")
 
+                # Zmiana: wszystkie hity pomarańczowe
+                color = "[38;5;208m"
                 if is_dead:
-                    color = "[31m"
                     emoji = "☠️"
-                    extra = " (ŚMIERĆ)"
-                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez Infected w {part} za {dmg} dmg"
-                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                    if kill_ch:
-                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                    extra = ""
+                    # Scalona wiadomość o śmierci
+                    msg = f"{date_str} | {log_time} ☠️ {victim} ZABITY przez Infected ({ammo})"
+                    ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if ch:
+                        await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    return  # Kończymy - nie wysyłamy hitu
                 elif hp < 20:
-                    color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[33m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 
@@ -343,20 +346,21 @@ async def process_line(bot, line: str):
                 dmg = match_hit_infected_simple.group("dmg")
                 ammo = match_hit_infected_simple.group("ammo")
 
+                # Zmiana: wszystkie hity pomarańczowe
+                color = "[38;5;208m"
                 if is_dead:
-                    color = "[31m"
                     emoji = "☠️"
-                    extra = " (ŚMIERĆ)"
-                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez Infected w {part} za {dmg} dmg"
-                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                    if kill_ch:
-                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                    extra = ""
+                    # Scalona wiadomość o śmierci
+                    msg = f"{date_str} | {log_time} ☠️ {victim} ZABITY przez Infected ({ammo})"
+                    ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if ch:
+                        await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    return  # Kończymy - nie wysyłamy hitu
                 elif hp < 20:
-                    color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[33m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 

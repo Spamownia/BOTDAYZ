@@ -7,6 +7,7 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 
 player_login_times = {}
+guid_to_name = {}  # Nowe mapowanie guid -> nick dla KICK/BAN
 
 UNPARSED_LOG = "unparsed_lines.log"
 
@@ -45,21 +46,22 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # 1. Połączono
+    # 1. Połączono – dodajemy mapowanie guid -> nick
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<id_val>[^)]+)\) is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group("name").strip()
-            id_val = match.group("id_val")
+            guid = match.group("id_val")
             player_login_times[name] = datetime.utcnow()
-            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {id_val})"
+            guid_to_name[guid] = name  # Mapowanie guid -> nick
+            msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono + Kick/Ban
+    # 2. Rozłączono + Kick/Ban – nick z guid_to_name jeśli dostępne
     if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
         if name_match:
@@ -68,7 +70,11 @@ async def process_line(bot, line: str):
             name = "????"
 
         id_match = re.search(r'\((?:id|steamID|uid)?=(?P<id_val>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
-        id_val = id_match.group("id_val").strip() if id_match else "brak"
+        guid = id_match.group("id_val").strip() if id_match else "brak"
+
+        # Jeśli guid istnieje, użyj nicka z mapy (lepsze niż ????)
+        if guid in guid_to_name:
+            name = guid_to_name[guid]
 
         detected_events["disconnect"] += 1
         
@@ -89,26 +95,27 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[33m"
+            color = "[38;5;208m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
             color = "[31m"
             extra = ""
 
-        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {id_val}) → {time_online}{extra}"
+        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
-    # 3. COT + Kick from COT
+    # 3. COT + Kick from COT – pomarańczowy ⚡ z nickiem z guid_to_name
     if "[COT]" in line:
         if "Kicked" in line:
             detected_events["disconnect"] += 1
             match = re.search(r'Kicked \[guid=(?P<guid>[^\]]+)\]', line)
             guid = match.group("guid") if match else "brak"
-            msg = f"{date_str} | {log_time} ⚡ KICK: guid={guid}"
+            name = guid_to_name.get(guid, "????")
+            msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
@@ -227,7 +234,7 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – dopasowany do Twojego formatu ADM
+    # CHAT – poprawiony regex + fallback na connections dla Direct
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
         
@@ -243,7 +250,7 @@ async def process_line(bot, line: str):
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS.get("chat", CHANNEL_IDS["connections"]))
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
@@ -252,7 +259,7 @@ async def process_line(bot, line: str):
                 print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony – fallback do connections")
                 fallback_ch = client.get_channel(CHANNEL_IDS["connections"])
                 if fallback_ch:
-                    await fallback_ch.send(f"```ansi\n{ansi_color}{msg} (Direct fallback)[0m\n```")
+                    await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
             return
         else:
             print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")

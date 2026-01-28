@@ -59,18 +59,13 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # 2. Rozłączono – obsługa "id=Unknown" i "has been disconnected"
-    if ("disconnected" in line.lower() or "kicked from server" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
-        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))\s*\(', line, re.IGNORECASE)
+    # 2. Rozłączono + Kick/Ban
+    if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
+        name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
         if name_match:
             name = (name_match.group(1) or name_match.group(2)).strip()
         else:
-            detected_events["disconnect"] += 1
-            msg = f"{date_str} | {log_time} 🔴 Rozłączono → ???? (nie udało się odczytać nicku)"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-            return
+            name = "????"
 
         id_match = re.search(r'\((?:id|steamID|uid)?=(?P<id_val>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
         id_val = id_match.group("id_val").strip() if id_match else "brak"
@@ -84,10 +79,10 @@ async def process_line(bot, line: str):
             seconds = int(delta.total_seconds() % 60)
             time_online = f"{minutes} min {seconds} s"
             del player_login_times[name]
-        
-        # Kick / Ban – kolor
-        is_kick = "kicked" in line.lower()
-        is_ban = "banned" in line.lower()
+
+        is_kick = "kicked" in line.lower() or "Kicked" in line
+        is_ban = "banned" in line.lower() or "Banned" in line
+
         if is_ban:
             emoji = "☠️"
             color = "[31m"
@@ -100,15 +95,25 @@ async def process_line(bot, line: str):
             emoji = "🔴"
             color = "[31m"
             extra = ""
-        
+
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {id_val}) → {time_online}{extra}"
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
-    # 3. COT
+    # 3. COT + Kick from COT
     if "[COT]" in line:
+        if "Kicked" in line:
+            detected_events["disconnect"] += 1
+            match = re.search(r'Kicked \[guid=(?P<guid>[^\]]+)\]', line)
+            guid = match.group("guid") if match else "brak"
+            msg = f"{date_str} | {log_time} ⚡ KICK: guid={guid}"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
+            return
+
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
         if match:
             detected_events["cot"] += 1
@@ -126,7 +131,7 @@ async def process_line(bot, line: str):
         hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
         hp = float(hp_match.group("hp")) if hp_match else None
 
-        # Kill (gracz)
+        # Kill
         match_kill = re.search(r'Player "(?P<victim>[^"]+)"(?: \((?:DEAD|id=[^)]+)\))? .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
         if match_kill:
             detected_events["kill"] += 1
@@ -222,7 +227,7 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
             return
 
-    # CHAT – dopasowany do formatu z Twojego ADM
+    # CHAT – dopasowany do Twojego formatu ADM
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
         
@@ -232,19 +237,22 @@ async def process_line(bot, line: str):
             channel_type = match.group("channel_type").strip()
             player = match.group("player").strip()
             message = match.group("message").strip() or "[brak]"
-            
-            print(f"[CHAT DEBUG] Rozpoznano: Typ={channel_type}, Gracz={player}, Wiadomość='{message}'")
+
+            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
             
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
-            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
+            discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS.get("chat", CHANNEL_IDS["connections"]))
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
                 print(f"[CHAT] Wysłano na kanał {discord_ch_id} ({channel_type})")
             else:
-                print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony dla typu {channel_type}")
+                print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony – fallback do connections")
+                fallback_ch = client.get_channel(CHANNEL_IDS["connections"])
+                if fallback_ch:
+                    await fallback_ch.send(f"```ansi\n{ansi_color}{msg} (Direct fallback)[0m\n```")
             return
         else:
             print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")
@@ -255,6 +263,5 @@ async def process_line(bot, line: str):
         timestamp = datetime.utcnow().isoformat()
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
             f.write(f"{timestamp} | {line}\n")
-        print(f"[OTHER] Linia nierozpoznana zapisana: {line[:100]}...")
     except Exception as e:
         print(f"[BŁĄD ZAPISU UNPARSED] {e}")

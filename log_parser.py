@@ -6,7 +6,6 @@ from discord import Embed
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 from collections import defaultdict
-from collections import deque
 import asyncio
 
 last_death_time = defaultdict(float) # victim.lower() → timestamp ostatniego killa
@@ -19,35 +18,29 @@ processed_count = 0
 detected_events = {
     "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0
 }
-pending_disconnects = deque(maxlen=20)          # max 20 ostatnich podejrzanych disconnectów
+pending_disconnects = []          # zmienione na listę
 DISCONNECT_GRACE_PERIOD = 2.5                   # sekund
 
 async def clean_pending_disconnects(client):
     while True:
         await asyncio.sleep(1.0)
         now = time.time()
-        to_send = []
-        i = 0
-        while i < len(pending_disconnects):
-            item = pending_disconnects[i]
-            if now - item["timestamp"] > DISCONNECT_GRACE_PERIOD:
-                # timeout → normalne wyjście
-                name = item["name"]
-                guid = item["guid"]
-                time_online = "nieznany"
-                if name in player_login_times:
-                    delta = datetime.utcnow() - player_login_times[name]
-                    time_online = f"{int(delta.total_seconds() // 60)} min {int(delta.total_seconds() % 60)} s"
-                    del player_login_times[name]
+        to_send = [item for item in pending_disconnects if now - item["timestamp"] > DISCONNECT_GRACE_PERIOD]
+        for item in to_send:
+            name = item["name"]
+            guid = item["guid"]
+            time_online = "nieznany"
+            if name in player_login_times:
+                delta = datetime.utcnow() - player_login_times[name]
+                time_online = f"{int(delta.total_seconds() // 60)} min {int(delta.total_seconds() % 60)} s"
+                del player_login_times[name]
 
-                msg = f"{item['date_str']} | {item['log_time']} 🔴 Rozłączono → {name} (ID: {guid}) → {time_online}"
-                ch = client.get_channel(CHANNEL_IDS["connections"])
-                if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-
-                pending_disconnects.popleft()
-            else:
-                i += 1
+            msg = f"{item['date_str']} | {item['log_time']} 🔴 Rozłączono → {name} (ID: {guid}) → {time_online}"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+        
+        pending_disconnects[:] = [item for item in pending_disconnects if now - item["timestamp"] <= DISCONNECT_GRACE_PERIOD]
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count

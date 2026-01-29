@@ -94,7 +94,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[38;5;208m"
+            color = "[33m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
@@ -117,7 +117,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
+                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
 
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
@@ -227,11 +227,11 @@ async def process_line(bot, line: str):
                     if kill_ch:
                         await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
                 elif hp < 20:
-                    color = "[38;5;208m"
+                    color = "[33m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[33m"
+                    color = "[93m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 

@@ -231,7 +231,7 @@ async def process_line(bot, line: str):
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[93m"
+                    color = "[38;5;220m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
 

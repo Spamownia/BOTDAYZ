@@ -6,18 +6,17 @@ import threading
 from flask import Flask
 import warnings
 import logging
-from config import DISCORD_TOKEN, CHECK_INTERVAL  # CHECK_INTERVAL możesz usunąć jeśli nie używasz
+from config import DISCORD_TOKEN
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
 # ────────────────────────────────────────────────
-# Bardzo agresywne wyciszenie ostrzeżeń o niezamkniętych sesjach aiohttp
+# Wyciszenie ostrzeżeń
 # ────────────────────────────────────────────────
 warnings.filterwarnings("ignore", category=ResourceWarning)
 warnings.filterwarnings("ignore", message=r"Unclosed client session", category=Warning)
 warnings.filterwarnings("ignore", message=r"Unclosed.*ClientSession", category=Warning)
 
-# Wyciszenie loggerów aiohttp i asyncio
 logging.getLogger("aiohttp").setLevel(logging.ERROR)
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 logging.getLogger("urllib3").setLevel(logging.ERROR)
@@ -58,26 +57,58 @@ async def on_ready():
     update_status.start()
     
     print("[BOT] Uruchamiam watcher logów co 30 sekund...")
-    watcher.run()  # ← watcher startuje pętlę w tle
+    # Uruchamiamy watcher w osobnym wątku
+    threading.Thread(target=watcher.run, daemon=True).start()
     
-    # Natychmiastowe pierwsze sprawdzenie po starcie
+    # Natychmiastowe pierwsze sprawdzenie
     print("[BOT] Natychmiastowe pierwsze sprawdzenie logów...")
+    await check_and_parse_new_content()
+
+async def check_and_parse_new_content():
+    """Funkcja pomocnicza – pobiera i parsuje nowe linie"""
     content = watcher.get_new_content()
-    if content:
-        lines = [l for l in content.splitlines() if l.strip()]
-        print(f"[BOT] Przetwarzam {len(lines)} linii z pierwszego sprawdzenia")
-        for line in lines:
-            try:
-                await process_line(client, line)
-            except Exception as line_err:
-                print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
+    if not content:
+        print("[CHECK] Brak nowych danych")
+        return
+    
+    lines = [l for l in content.splitlines() if l.strip()]
+    print(f"[CHECK] Przetwarzam {len(lines)} linii")
+    
+    for line in lines:
+        try:
+            await process_line(client, line)
+        except Exception as line_err:
+            print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
+
+def run_watcher_loop():
+    """Pętla w watcherze – co 30 sekund pobiera i parsuje"""
+    print("[WATCHER THREAD] Start pętli co 30 sekund")
+    while True:
+        try:
+            asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
+        except Exception as e:
+            print(f"[WATCHER THREAD ERROR] {e}")
+        time.sleep(30)
+
+@client.event
+async def on_ready():
+    print(f"[BOT] Gotowy – {client.user}")
+    update_status.start()
+    
+    print("[BOT] Uruchamiam watcher logów co 30 sekund...")
+    # Uruchamiamy watcher w osobnym wątku
+    threading.Thread(target=run_watcher_loop, daemon=True).start()
+    
+    # Natychmiastowe pierwsze sprawdzenie
+    print("[BOT] Natychmiastowe pierwsze sprawdzenie logów...")
+    await check_and_parse_new_content()
 
 # ────────────────────────────────────────────────
-# Bezpieczne uruchamianie z backoff-em przy błędach
+# Bezpieczne uruchamianie z backoff-em
 # ────────────────────────────────────────────────
 async def safe_run_bot():
     backoff = 5
-    max_backoff = 120  # max 2 minuty
+    max_backoff = 120
     while True:
         try:
             await client.start(DISCORD_TOKEN)
@@ -86,7 +117,7 @@ async def safe_run_bot():
             print("[FATAL] Nieprawidłowy token – wyłączam bota")
             return
         except discord.errors.HTTPException as e:
-            if e.status in (429, 1015):  # rate limit / Cloudflare
+            if e.status in (429, 1015):
                 wait_time = backoff
                 print(f"[RATE LIMIT / 1015] Czekam {wait_time}s...")
                 await asyncio.sleep(wait_time)
@@ -108,7 +139,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[MAIN FATAL] {e}")
     finally:
-        # Ostatnia próba wyciszenia i zamknięcia loopa
         try:
             loop = asyncio.get_event_loop()
             if not loop.is_closed():

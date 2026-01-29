@@ -6,8 +6,7 @@ import threading
 from flask import Flask
 import warnings
 import logging
-
-from config import DISCORD_TOKEN, CHECK_INTERVAL
+from config import DISCORD_TOKEN, CHECK_INTERVAL  # CHECK_INTERVAL możesz usunąć jeśli nie używasz
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
@@ -18,15 +17,15 @@ warnings.filterwarnings("ignore", category=ResourceWarning)
 warnings.filterwarnings("ignore", message=r"Unclosed client session", category=Warning)
 warnings.filterwarnings("ignore", message=r"Unclosed.*ClientSession", category=Warning)
 
-# Wyciszenie loggerów aiohttp i asyncio (najczęściej stąd wychodzą ostrzeżenia)
+# Wyciszenie loggerów aiohttp i asyncio
 logging.getLogger("aiohttp").setLevel(logging.ERROR)
 logging.getLogger("asyncio").setLevel(logging.ERROR)
-logging.getLogger("urllib3").setLevel(logging.ERROR)  # czasem też się miesza
+logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = commands.Bot(command_prefix="!", intents=intents)
+
 watcher = DayZLogWatcher()
 
 flask_app = Flask(__name__)
@@ -53,43 +52,32 @@ async def update_status():
     except Exception as e:
         print(f"[STATUS ERROR] {e}")
 
-@tasks.loop(seconds=CHECK_INTERVAL)
-async def check_logs():
-    print("[CHECK] Start...")
-    try:
-        content = watcher.get_new_content()
-        if not content:
-            print("[CHECK] Brak nowych danych")
-            return
-        
+@client.event
+async def on_ready():
+    print(f"[BOT] Gotowy – {client.user}")
+    update_status.start()
+    
+    print("[BOT] Uruchamiam watcher logów co 30 sekund...")
+    watcher.run()  # ← watcher startuje pętlę w tle
+    
+    # Natychmiastowe pierwsze sprawdzenie po starcie
+    print("[BOT] Natychmiastowe pierwsze sprawdzenie logów...")
+    content = watcher.get_new_content()
+    if content:
         lines = [l for l in content.splitlines() if l.strip()]
-        print(f"[CHECK] Przetwarzam {len(lines)} linii")
-        
+        print(f"[BOT] Przetwarzam {len(lines)} linii z pierwszego sprawdzenia")
         for line in lines:
             try:
                 await process_line(client, line)
             except Exception as line_err:
                 print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
-                
-    except Exception as e:
-        print(f"[CHECK ERROR] {e}")
-
-@client.event
-async def on_ready():
-    print(f"[BOT] Gotowy – {client.user}")
-    update_status.start()
-    check_logs.start()
-    print("[BOT] Natychmiastowe pierwsze sprawdzenie...")
-    await check_logs()
 
 # ────────────────────────────────────────────────
 # Bezpieczne uruchamianie z backoff-em przy błędach
 # ────────────────────────────────────────────────
-
 async def safe_run_bot():
     backoff = 5
     max_backoff = 120  # max 2 minuty
-
     while True:
         try:
             await client.start(DISCORD_TOKEN)

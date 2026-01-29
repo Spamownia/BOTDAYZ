@@ -6,6 +6,7 @@ import threading
 from flask import Flask
 import warnings
 import logging
+import time  # ← DODANE – bez tego time.sleep nie działa
 from config import DISCORD_TOKEN
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
@@ -51,21 +52,8 @@ async def update_status():
     except Exception as e:
         print(f"[STATUS ERROR] {e}")
 
-@client.event
-async def on_ready():
-    print(f"[BOT] Gotowy – {client.user}")
-    update_status.start()
-    
-    print("[BOT] Uruchamiam watcher logów co 30 sekund...")
-    # Uruchamiamy watcher w osobnym wątku
-    threading.Thread(target=watcher.run, daemon=True).start()
-    
-    # Natychmiastowe pierwsze sprawdzenie
-    print("[BOT] Natychmiastowe pierwsze sprawdzenie logów...")
-    await check_and_parse_new_content()
-
 async def check_and_parse_new_content():
-    """Funkcja pomocnicza – pobiera i parsuje nowe linie"""
+    """Pobiera i parsuje nowe linie"""
     content = watcher.get_new_content()
     if not content:
         print("[CHECK] Brak nowych danych")
@@ -81,14 +69,17 @@ async def check_and_parse_new_content():
             print(f"[LINE PROCESS ERROR] {line_err} → linia: {line[:120]}...")
 
 def run_watcher_loop():
-    """Pętla w watcherze – co 30 sekund pobiera i parsuje"""
+    """Pętla watcher'a – co 30 sekund pobiera i parsuje logi"""
     print("[WATCHER THREAD] Start pętli co 30 sekund")
     while True:
         try:
-            asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
+            # Wywołanie async funkcji z wątku – bezpieczne przez run_coroutine_threadsafe
+            future = asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
+            future.result()  # Czeka na zakończenie (opcjonalne, ale pomaga w debugu)
         except Exception as e:
             print(f"[WATCHER THREAD ERROR] {e}")
-        time.sleep(30)
+        
+        time.sleep(30)  # ← teraz działa, bo mamy import time
 
 @client.event
 async def on_ready():
@@ -96,7 +87,7 @@ async def on_ready():
     update_status.start()
     
     print("[BOT] Uruchamiam watcher logów co 30 sekund...")
-    # Uruchamiamy watcher w osobnym wątku
+    # Startujemy pętlę w osobnym wątku
     threading.Thread(target=run_watcher_loop, daemon=True).start()
     
     # Natychmiastowe pierwsze sprawdzenie
@@ -104,7 +95,7 @@ async def on_ready():
     await check_and_parse_new_content()
 
 # ────────────────────────────────────────────────
-# Bezpieczne uruchamianie z backoff-em
+# Bezpieczne uruchamianie bota z backoff-em
 # ────────────────────────────────────────────────
 async def safe_run_bot():
     backoff = 5

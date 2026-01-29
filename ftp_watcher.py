@@ -2,6 +2,7 @@ from ftplib import FTP
 import time
 import json
 import os
+import threading
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 LAST_POSITIONS_FILE = 'last_positions.json'
@@ -15,6 +16,7 @@ class DayZLogWatcher:
         self.last_adm_pos = 0
         self._load_last_positions()
         print("[FTP WATCHER] Inicjalizacja – pamięć pozycji z JSON")
+        self.running = False
 
     def _load_last_positions(self):
         if os.path.exists(LAST_POSITIONS_FILE):
@@ -70,7 +72,7 @@ class DayZLogWatcher:
                 print(f"[FTP WATCHER] Błąd połączenia (próba {attempt+1}): {e}")
                 self.ftp = None
                 time.sleep(5 * (attempt + 1))  # backoff: 5s, 10s, 15s...
-        
+
         print(f"[FTP WATCHER] Nie udało się połączyć po {max_retries} próbach")
         return False
 
@@ -84,7 +86,7 @@ class DayZLogWatcher:
             self.ftp.dir(files_lines.append)
             rpt_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.rpt')]
             adm_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.adm')]
-            
+
             latest_rpt = max(rpt_files, key=str, default=None) if rpt_files else None
             latest_adm = max(adm_files, key=str, default=None) if adm_files else None
 
@@ -168,3 +170,27 @@ class DayZLogWatcher:
             self._save_last_positions()
 
         return "\n".join(contents)
+
+    def run(self):
+        """Uruchamia watcher w pętli co 30 sekund"""
+        if self.running:
+            print("[FTP WATCHER] Watcher już uruchomiony")
+            return
+
+        self.running = True
+        print("[FTP WATCHER] Uruchamiam pętlę sprawdzania co 30 sekund")
+
+        def loop():
+            while self.running:
+                try:
+                    content = self.get_new_content()
+                    if content:
+                        print(f"[FTP WATCHER] Znaleziono nowe dane – {len(content.splitlines())} linii")
+                        # Tutaj możesz przekazać content do parsera (np. przez kolejkę lub globalną zmienną)
+                        # W Twoim przypadku – po prostu print, bo parser jest wywoływany w check_logs()
+                except Exception as e:
+                    print(f"[FTP WATCHER LOOP ERROR] {e}")
+                
+                time.sleep(30)  # ← dokładnie co 30 sekund
+
+        threading.Thread(target=loop, daemon=True).start()

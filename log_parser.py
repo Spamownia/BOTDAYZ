@@ -244,7 +244,7 @@ async def process_line(bot, line: str):
 
             print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
 
-            color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
+            color_map = {"Global": "[34m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"
             discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])

@@ -1,3 +1,4 @@
+# main.py
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -10,7 +11,7 @@ import time
 from datetime import datetime
 
 # Twoje importy
-from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMERTICS_SERVER_ID
+from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
@@ -31,7 +32,7 @@ client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
 # ────────────────────────────────────────────────
-# Prosty serwer health-check (bez emoji w bajtach)
+# Prosty serwer health-check (poprawione kodowanie)
 # ────────────────────────────────────────────────
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):

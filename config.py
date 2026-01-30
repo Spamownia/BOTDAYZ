@@ -1,3 +1,4 @@
+# config.py
 # Zaktualizowany config.py – dodałem nowy kanał "damages" (zmień ID na prawdziwy)
 import os
 from dotenv import load_dotenv
@@ -35,3 +36,6 @@ CHAT_CHANNEL_MAPPING = {
 }
 
 CHECK_INTERVAL = 30  # sekundy
+BATTLEMETRICS_SERVER_ID = os.getenv("BATTLEMETRICS_SERVER_ID")  # Dodane – zmień na prawdziwy ID serwera BattleMetrics!
+if not BATTLEMETRICS_SERVER_ID:
+    raise ValueError("Brak BATTLEMETRICS_SERVER_ID w .env!")

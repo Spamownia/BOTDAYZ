@@ -1,4 +1,3 @@
-# main.py
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -10,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 
-# Twoje importy
+# Import poprawiony – używa BATTLEMETRICS_SERVER_ID (może być None)
 from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
@@ -32,7 +31,7 @@ client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
 # ────────────────────────────────────────────────
-# Prosty serwer health-check (poprawione kodowanie)
+# Prosty serwer health-check
 # ────────────────────────────────────────────────
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -56,10 +55,14 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # ────────────────────────────────────────────────
-# Status BattleMetrics
+# Status BattleMetrics – teraz bezpieczny (obsługuje brak ID)
 # ────────────────────────────────────────────────
 @tasks.loop(seconds=60)
 async def update_status():
+    if not BATTLEMETRICS_SERVER_ID:
+        print("[STATUS] Pomijam aktualizację – brak BATTLEMETRICS_SERVER_ID")
+        return
+
     try:
         r = requests.get(f"https://api.battlemetrics.com/servers/{BATTLEMETRICS_SERVER_ID}", timeout=10)
         r.raise_for_status()

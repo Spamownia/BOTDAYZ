@@ -8,6 +8,7 @@ from utils import create_connect_embed, create_kill_embed, create_death_embed, c
 from collections import defaultdict
 
 last_death_time = defaultdict(float)  # victim.lower() → timestamp ostatniego killa
+
 player_login_times = {}
 guid_to_name = {}  # Mapowanie guid → nick dla KICK/BAN
 
@@ -20,9 +21,10 @@ detected_events = {
     "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0
 }
 
+
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
-    
+
     client = bot
     line = line.strip()
     if not line:
@@ -36,7 +38,7 @@ async def process_line(bot, line: str):
         if not any(detected_events.values()):
             summary += " (nic nie wykryto)"
         print(summary)
-        
+
         last_summary_time = now
         processed_count = 0
         for k in detected_events:
@@ -75,7 +77,7 @@ async def process_line(bot, line: str):
             name = guid_to_name[guid]
 
         detected_events["disconnect"] += 1
-        
+
         time_online = "nieznany"
         if name in player_login_times:
             delta = datetime.utcnow() - player_login_times[name]
@@ -93,11 +95,11 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[33m"
+            color = "[38;5;208m"  # pomarańczowy dla kicka
             extra = " (KICK)"
         else:
             emoji = "🔴"
-            color = "[31m"
+            color = "[31m"      # czerwony dla zwykłego rozłączenia
             extra = ""
 
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
@@ -131,12 +133,12 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Hit / Kill – tylko jedna linia kill, bez hitów z (ŚMIERĆ)
+    # 4. Hit / Kill – anty-duplikaty
     if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line or "died." in line:
         hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
         hp = float(hp_match.group("hp")) if hp_match else None
 
-        # Najpierw sprawdzamy KILL – wysyłamy tylko jedną linię kill
+        # Najpierw sprawdzamy KILL – jeśli jest kill, nie wysyłamy hitu
         killed = False
 
         # Kill (gracz) – z pos=
@@ -144,7 +146,7 @@ async def process_line(bot, line: str):
         if match_kill:
             victim = match_kill.group("victim").strip()
             victim_key = victim.lower()
-            if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+            if victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                 return
             last_death_time[victim_key] = now
             killed = True
@@ -156,7 +158,6 @@ async def process_line(bot, line: str):
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-            return  # Return po killu
 
         # Kill (gracz) – bez pos=
         if not killed:
@@ -164,7 +165,7 @@ async def process_line(bot, line: str):
             if match_kill_simple:
                 victim = match_kill_simple.group("victim").strip()
                 victim_key = victim.lower()
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                if victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
                 last_death_time[victim_key] = now
                 killed = True
@@ -176,7 +177,6 @@ async def process_line(bot, line: str):
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-                return
 
         # "died." jako kill
         if not killed and "died." in line:
@@ -184,7 +184,7 @@ async def process_line(bot, line: str):
             if match:
                 victim = match.group("victim").strip()
                 victim_key = victim.lower()
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                if victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
                 last_death_time[victim_key] = now
                 killed = True
@@ -193,21 +193,19 @@ async def process_line(bot, line: str):
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-                return
 
-        # Hit – wysyłamy tylko jeśli nie is_dead (pomijamy hity powodujące śmierć – kill wysłany z "killed by")
+        # Hit – wysyłamy TYLKO jeśli nie był to kill
         if not killed:
             # Hit by Player – z pos=
             match_hit_player = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
             if match_hit_player:
                 victim = match_hit_player.group("victim").strip()
                 victim_key = victim.lower()
-                hp = float(match_hit_player.group("hp"))
-                is_dead = hp <= 0 or "(DEAD)" in line
-                if is_dead:
-                    return  # Pomijamy hit powodujący śmierć
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                is_dead = float(match_hit_player.group("hp")) <= 0 or "(DEAD)" in line
+                if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
+                if is_dead:
+                    last_death_time[victim_key] = now
                 detected_events["hit"] += 1
                 attacker = match_hit_player.group("attacker")
                 part = match_hit_player.group("part")
@@ -215,12 +213,21 @@ async def process_line(bot, line: str):
                 ammo = match_hit_player.group("ammo")
                 weapon = match_hit_player.group("weapon")
                 dist = match_hit_player.group("dist")
-                if hp < 20:
-                    color = "[38;5;208m"
+                hp = float(match_hit_player.group("hp"))
+                if is_dead:
+                    color = "[31m"
+                    emoji = "☠️"
+                    extra = " (ŚMIERĆ)"
+                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
+                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if kill_ch:
+                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                elif hp < 20:
+                    color = "[33m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
                 else:
-                    color = "[33m"
+                    color = "[38;5;226m"
                     emoji = "⚡"
                     extra = f" (HP: {hp:.1f})"
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
@@ -237,10 +244,10 @@ async def process_line(bot, line: str):
                 hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
                 hp = float(hp_match.group("hp")) if hp_match else 100.0
                 is_dead = hp <= 0 or "(DEAD)" in line
-                if is_dead:
-                    return  # Pomijamy hit powodujący śmierć
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
+                if is_dead:
+                    last_death_time[victim_key] = now
                 detected_events["hit"] += 1
                 attacker = match_hit_player_simple.group("attacker")
                 part = match_hit_player_simple.group("part")
@@ -248,7 +255,15 @@ async def process_line(bot, line: str):
                 ammo = match_hit_player_simple.group("ammo")
                 weapon = match_hit_player_simple.group("weapon")
                 dist = match_hit_player_simple.group("dist")
-                if hp < 20:
+                if is_dead:
+                    color = "[31m"
+                    emoji = "☠️"
+                    extra = " (ŚMIERĆ)"
+                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
+                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if kill_ch:
+                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                elif hp < 20:
                     color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
@@ -269,15 +284,23 @@ async def process_line(bot, line: str):
                 victim_key = victim.lower()
                 hp = float(match_hit_infected.group("hp"))
                 is_dead = hp <= 0 or "(DEAD)" in line
-                if is_dead:
-                    return  # Pomijamy hit powodujący śmierć
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
+                if is_dead:
+                    last_death_time[victim_key] = now
                 detected_events["hit"] += 1
                 part = match_hit_infected.group("part")
                 dmg = match_hit_infected.group("dmg")
                 ammo = match_hit_infected.group("ammo")
-                if hp < 20:
+                if is_dead:
+                    color = "[31m"
+                    emoji = "☠️"
+                    extra = " (ŚMIERĆ)"
+                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez Infected w {part} za {dmg} dmg"
+                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if kill_ch:
+                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                elif hp < 20:
                     color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
@@ -299,15 +322,23 @@ async def process_line(bot, line: str):
                 hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
                 hp = float(hp_match.group("hp")) if hp_match else 100.0
                 is_dead = hp <= 0 or "(DEAD)" in line
-                if is_dead:
-                    return  # Pomijamy hit powodujący śmierć
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
+                if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
                     return
+                if is_dead:
+                    last_death_time[victim_key] = now
                 detected_events["hit"] += 1
                 part = match_hit_infected_simple.group("part")
                 dmg = match_hit_infected_simple.group("dmg")
                 ammo = match_hit_infected_simple.group("ammo")
-                if hp < 20:
+                if is_dead:
+                    color = "[31m"
+                    emoji = "☠️"
+                    extra = " (ŚMIERĆ)"
+                    kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez Infected w {part} za {dmg} dmg"
+                    kill_ch = client.get_channel(CHANNEL_IDS["kills"])
+                    if kill_ch:
+                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                elif hp < 20:
                     color = "[38;5;208m"
                     emoji = "🔥"
                     extra = f" (HP: {hp:.1f})"
@@ -321,10 +352,10 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n{color}{msg}[0m\n```")
                 return
 
-    # CHAT
+    # CHAT – bez zmian
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
-        
+
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
             detected_events["chat"] += 1
@@ -333,7 +364,7 @@ async def process_line(bot, line: str):
             message = match.group("message").strip() or "[brak]"
 
             print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
-            
+
             color_map = {"Global": "[32m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
             msg = f"{date_str} | {log_time} 💬 [{channel_type}] {player}: {message}"

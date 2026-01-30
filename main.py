@@ -60,7 +60,7 @@ threading.Thread(target=run_health_server, daemon=True).start()
 @tasks.loop(seconds=60)
 async def update_status():
     try:
-        r = requests.get(f"https://api.battlemetrics.com/servers/{BATTLEMERTICS_SERVER_ID}", timeout=10)
+        r = requests.get(f"https://api.battlemetrics.com/servers/{BATTLEMETRICS_SERVER_ID}", timeout=10)
         r.raise_for_status()
         d = r.json()["data"]["attributes"]
         await client.change_presence(activity=discord.Game(f"{d['players']}/{d['maxPlayers']} online"))

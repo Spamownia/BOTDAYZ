@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 
-# Import poprawiony – używa BATTLEMETRICS_SERVER_ID (może być None)
+# Importy z Twoich plików
 from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
@@ -31,14 +31,14 @@ client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
 # ────────────────────────────────────────────────
-# Prosty serwer health-check
+# Prosty serwer health-check (na Render)
 # ────────────────────────────────────────────────
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write("Bot Husaria - zyje!".encode('utf-8'))
+        self.wfile.write("Bot Husaria - żyje!".encode('utf-8'))
 
     def do_HEAD(self):
         self.send_response(200)
@@ -48,29 +48,65 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
 def run_health_server():
     server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
-    print("[HEALTH] Uruchamiam prosty serwer health-check na :10000")
+    print("[HEALTH] Uruchamiam health-check na :10000")
     server.serve_forever()
 
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # ────────────────────────────────────────────────
-# Status BattleMetrics – teraz bezpieczny (obsługuje brak ID)
+# Status BattleMetrics – WERSJA Z BARDZO DOBRYM DEBUGIEM
 # ────────────────────────────────────────────────
 @tasks.loop(seconds=60)
 async def update_status():
-    if not BATTLEMETRICS_SERVER_ID:
-        print("[STATUS] Pomijam aktualizację – brak BATTLEMETRICS_SERVER_ID")
+    server_id = BATTLEMETRICS_SERVER_ID
+    
+    print(f"[STATUS DEBUG] Wartość BATTLEMETRICS_SERVER_ID = '{server_id}' (typ: {type(server_id).__name__})")
+    
+    if not server_id or not str(server_id).strip().isdigit():
+        print("[STATUS] Brak poprawnego ID BattleMetrics → ustawiam fallback")
+        try:
+            await client.change_presence(activity=discord.Game("BM ID nie ustawiony"))
+        except Exception as e:
+            print(f"[STATUS FALLBACK ERROR] {e}")
         return
 
+    url = f"https://api.battlemetrics.com/servers/{server_id}"
+    print(f"[STATUS] Zapytanie do: {url}")
+
     try:
-        r = requests.get(f"https://api.battlemetrics.com/servers/{BATTLEMETRICS_SERVER_ID}", timeout=10)
-        r.raise_for_status()
-        d = r.json()["data"]["attributes"]
-        await client.change_presence(activity=discord.Game(f"{d['players']}/{d['maxPlayers']} online"))
-        print(f"[STATUS] {d['players']}/{d['maxPlayers']} | {datetime.utcnow().strftime('%H:%M:%S')}")
+        r = requests.get(url, timeout=12)
+        print(f"[STATUS] Status HTTP: {r.status_code}")
+
+        if r.status_code != 200:
+            error_text = r.text[:300].replace('\n', ' ') if r.text else '(brak treści)'
+            print(f"[STATUS ERROR] HTTP {r.status_code} → {error_text}")
+            
+            if r.status_code == 404:
+                await client.change_presence(activity=discord.Game("Serwer nie znaleziony w BM"))
+            elif r.status_code == 429:
+                await client.change_presence(activity=discord.Game("BM rate limit"))
+            else:
+                await client.change_presence(activity=discord.Game(f"BM błąd {r.status_code}"))
+            return
+
+        data = r.json()
+        attrs = data.get("data", {}).get("attributes", {})
+        
+        players = attrs.get("players", "?")
+        max_players = attrs.get("maxPlayers", "?")
+        
+        status_text = f"{players}/{max_players} online | Husaria"
+        print(f"[STATUS SUCCESS] Ustawiam: {status_text}")
+
+        await client.change_presence(activity=discord.Game(status_text))
+
+    except requests.exceptions.RequestException as req_err:
+        print(f"[STATUS REQUEST ERROR] {req_err.__class__.__name__}: {req_err}")
+        await client.change_presence(activity=discord.Game("BM API niedostępne"))
     except Exception as e:
-        print(f"[STATUS ERROR] {e}")
+        print(f"[STATUS CRITICAL ERROR] {e.__class__.__name__}: {e}")
+        await client.change_presence(activity=discord.Game("Błąd statusu"))
 
 # ────────────────────────────────────────────────
 # Pętla sprawdzania logów
@@ -136,8 +172,8 @@ async def on_ready():
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 
+    print("[BOT] Uruchamiam update_status i watcher...")
     update_status.start()
-    print("[BOT] Uruchamiam watcher logów...")
     threading.Thread(target=run_watcher_loop, daemon=True).start()
 
     await check_and_parse_new_content()
@@ -148,10 +184,10 @@ async def on_ready():
 # ────────────────────────────────────────────────
 async def safe_run_bot():
     backoff = 5
-    max_backoff = 180
+    max_backoff = 900  # max 15 minut
     while True:
         try:
-            print("[BOT] Próba logowania...")
+            print("[BOT] Próba logowania do Discorda...")
             await client.start(DISCORD_TOKEN)
             break
         except discord.errors.LoginFailure:

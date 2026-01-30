@@ -96,7 +96,7 @@ async def update_status():
         players = attrs.get("players", "?")
         max_players = attrs.get("maxPlayers", "?")
         
-        status_text = f"{players}/{max_players} online | Husaria"
+        status_text = f"{players}/{max_players} online"
         print(f"[STATUS SUCCESS] Ustawiam: {status_text}")
 
         await client.change_presence(activity=discord.Game(status_text))

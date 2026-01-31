@@ -192,6 +192,6 @@ class DayZLogWatcher:
                 except Exception as e:
                     print(f"[FTP WATCHER LOOP ERROR] {e}")
                 
-                time.sleep(30)  # ← dokładnie co 30 sekund
+                time.sleep(15)  # ← dokładnie co 30 sekund
 
         threading.Thread(target=loop, daemon=True).start()

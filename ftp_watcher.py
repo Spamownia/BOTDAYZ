@@ -106,7 +106,7 @@ class DayZLogWatcher:
 
             if filename != last_file or last_file is None:
                 print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
-                last_pos = max 0
+                last_pos = 0
 
             if last_pos >= size:
                 print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")

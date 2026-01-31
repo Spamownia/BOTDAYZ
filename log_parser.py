@@ -44,7 +44,7 @@ async def process_line(bot, line: str):
         for k in detected_events:
             detected_events[k] = 0
 
-    time_match = re.search(r'^(\d{2}:\d{2}:\d{2})', line)
+    time_match = re.search(r'^\s*(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
 
     today = datetime.utcnow()

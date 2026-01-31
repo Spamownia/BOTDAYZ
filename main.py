@@ -1,3 +1,4 @@
+# main.py
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -10,7 +11,7 @@ import time
 from datetime import datetime
 
 # Importy z Twoich plików
-from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
+from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID, CHECK_INTERVAL
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
@@ -55,7 +56,7 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # ────────────────────────────────────────────────
-# Status BattleMetrics – WERSJA Z BARDZO DOBRYM DEBUGIEM
+# Status BattleMetrics
 # ────────────────────────────────────────────────
 @tasks.loop(seconds=60)
 async def update_status():
@@ -101,15 +102,12 @@ async def update_status():
 
         await client.change_presence(activity=discord.Game(status_text))
 
-    except requests.exceptions.RequestException as req_err:
-        print(f"[STATUS REQUEST ERROR] {req_err.__class__.__name__}: {req_err}")
-        await client.change_presence(activity=discord.Game("BM API niedostępne"))
     except Exception as e:
-        print(f"[STATUS CRITICAL ERROR] {e.__class__.__name__}: {e}")
-        await client.change_presence(activity=discord.Game("Błąd statusu"))
+        print(f"[STATUS EXCEPTION] {e}")
+        await client.change_presence(activity=discord.Game("BM error"))
 
 # ────────────────────────────────────────────────
-# Pętla sprawdzania logów
+# Sprawdzanie logów
 # ────────────────────────────────────────────────
 async def check_and_parse_new_content():
     content = watcher.get_new_content()
@@ -118,6 +116,7 @@ async def check_and_parse_new_content():
         return
 
     lines = [l.strip() for l in content.splitlines() if l.strip()]
+    print(f"[DEBUG LINES] Przetwarzam {len(lines)} linii (pierwsze 5): {lines[:5]}...")
     print(f"[CHECK] Przetwarzam {len(lines)} linii ({datetime.utcnow().strftime('%H:%M:%S')})")
 
     for line in lines:
@@ -128,14 +127,14 @@ async def check_and_parse_new_content():
 
 
 def run_watcher_loop():
-    print("[WATCHER THREAD] Start pętli co ~30 sekund")
+    print(f"[WATCHER THREAD] Start pętli co ~{CHECK_INTERVAL} sekund")
     while True:
         try:
             future = asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
             future.result(timeout=15)
         except Exception as e:
             print(f"[WATCHER THREAD ERROR] {e}")
-        time.sleep(30)
+        time.sleep(CHECK_INTERVAL)
 
 
 # ────────────────────────────────────────────────

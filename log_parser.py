@@ -91,7 +91,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[33m"
+            color = "[38;5;208m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
@@ -132,8 +132,11 @@ async def process_line(bot, line: str):
 
         # 4.1 Zabójstwo (kill) – czerwony tekst
         kill_patterns = [
-            r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
+            # Kill by player
             r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            # Kill by non-player (Infected, FallDamage itp.)
+            r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
+            # CHAR_DEBUG - KILL
             r'CHAR_DEBUG - KILL: Player "(?P<victim>[^"]+)" killed by (?P<attacker>[^ ]+)',
         ]
 
@@ -187,8 +190,11 @@ async def process_line(bot, line: str):
 
         # 4.3 Hit – czytelny format, bez zbędnych ?
         hit_patterns = [
-            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
+            # Hit by player
+            r'Player "(?P<victim>[^"]+)" .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+\)) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            # Hit by non-player (Infected itp.)
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+\))',
+            # Ogólny fallback
             r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) .*for (?P<dmg>[\d.]+) damage',
         ]
 
@@ -208,24 +214,19 @@ async def process_line(bot, line: str):
                 is_dead = (hp is not None and hp <= 0) or "(DEAD)" in line
 
                 if is_dead:
-                    detected_events["kill"] += 1
-                    detected_events["hit"] -= 1
-                    msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon if weapon else ammo} z {dist if dist else '0'} m"
-                    ch = client.get_channel(CHANNEL_IDS["kills"])
-                    if ch:
-                        await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-                else:
-                    color = "[35m" if (hp and hp < 30) else "[33m"
-                    emoji = "🔥" if (hp and hp < 30) else "⚡"
-                    extra = f" (HP: {hp:.1f})" if hp is not None else ""
-                    part_str = f" w {part}" if part else ""
-                    ammo_str = f" ({ammo})" if ammo else ""
-                    weapon_str = f" z {weapon}" if weapon else ""
-                    dist_str = f" z {dist}m" if dist else ""
-                    msg = f"{date_str} | {log_time} {emoji} {victim}{extra}{part_str} trafiony przez {attacker} za {dmg} dmg{ammo_str}{weapon_str}{dist_str}"
-                    ch = client.get_channel(CHANNEL_IDS["damages"])
-                    if ch:
-                        await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    return  # Pomijamy hity z (DEAD) lub HP=0 – niech kill block obsłuży
+
+                color = "[33m" if (hp and hp < 30) else "[38;5;226m"
+                emoji = "🔥" if (hp and hp < 30) else "⚡"
+                extra = f" (HP: {hp:.1f})" if hp is not None else ""
+                part_str = f" w {part}" if part else ""
+                ammo_str = f" ({ammo})" if ammo else ""
+                weapon_str = f" z {weapon}" if weapon else ""
+                dist_str = f" z {dist}m" if dist else ""
+                msg = f"{date_str} | {log_time} {emoji} {victim}{extra}{part_str} trafiony przez {attacker} za {dmg} dmg{ammo_str}{weapon_str}{dist_str}"
+                ch = client.get_channel(CHANNEL_IDS["damages"])
+                if ch:
+                    await ch.send(f"```ansi\n{color}{msg}[0m\n```")
                 return
 
     # 5. Chat

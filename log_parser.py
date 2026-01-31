@@ -99,7 +99,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[38;5;208m"  # pomarańczowy dla kicka
+            color = "[33m"  # pomarańczowy dla kicka
             extra = " (KICK)"
         else:
             emoji = "🔴"

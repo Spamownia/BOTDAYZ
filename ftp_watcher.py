@@ -1,16 +1,16 @@
 # ftp_watcher.py
-import ftputil
+from ftplib import FTP
 import time
 import json
 import os
 import threading
-from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR, CHECK_INTERVAL
+from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 LAST_POSITIONS_FILE = 'last_positions.json'
 
 class DayZLogWatcher:
     def __init__(self):
-        self.ftp_host = None
+        self.ftp = None
         self.last_rpt = None
         self.last_adm = None
         self.last_rpt_pos = 0
@@ -48,39 +48,45 @@ class DayZLogWatcher:
         except Exception as e:
             print(f"[FTP WATCHER] Błąd zapisu pozycji: {e}")
 
-    def connect(self, max_retries=5):
-        if self.ftp_host:
+    def connect(self, max_retries=3):
+        """Stabilne połączenie z retry i timeoutami"""
+        if self.ftp:
             try:
-                self.ftp_host.stat('.')
+                self.ftp.voidcmd("NOOP")
                 print("[FTP WATCHER] Połączenie nadal aktywne")
                 return True
-            except Exception as e:
-                print(f"[FTP WATCHER] Stare połączenie padło: {e} – reconnect")
-                self.ftp_host = None
+            except:
+                print("[FTP WATCHER] Stare połączenie padło – reconnect")
+                self.ftp = None
 
         for attempt in range(max_retries):
             try:
                 print(f"[FTP WATCHER] Próba połączenia {attempt+1}/{max_retries}: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
-                self.ftp_host = ftputil.FTPHost(FTP_HOST, FTP_USER, FTP_PASS, port=FTP_PORT)
-                self.ftp_host.path.chdir(FTP_LOG_DIR)
-                print(f"[FTP WATCHER] Połączono i cwd OK → {self.ftp_host.curdir}")
+                self.ftp = FTP(timeout=30)
+                self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
+                self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
+                self.ftp.cwd(FTP_LOG_DIR)
+                print(f"[FTP WATCHER] Połączono i cwd OK → {self.ftp.pwd()}")
+                self.ftp.set_pasv(True)
                 return True
             except Exception as e:
                 print(f"[FTP WATCHER] Błąd połączenia (próba {attempt+1}): {e}")
-                self.ftp_host = None
-                time.sleep(5 * (attempt + 1))
+                self.ftp = None
+                time.sleep(5 * (attempt + 1))  # backoff: 5s, 10s, 15s...
 
         print(f"[FTP WATCHER] Nie udało się połączyć po {max_retries} próbach")
         return False
 
     def get_latest_files(self):
+        """Pobiera najnowsze pliki .RPT i .ADM"""
         if not self.connect():
             return None, None
 
         try:
-            files = self.ftp_host.listdir(self.ftp_host.curdir)
-            rpt_files = [f for f in files if f.lower().endswith('.rpt')]
-            adm_files = [f for f in files if f.lower().endswith('.adm')]
+            files_lines = []
+            self.ftp.dir(files_lines.append)
+            rpt_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.rpt')]
+            adm_files = [line.split()[-1] for line in files_lines if line.lower().endswith('.adm')]
 
             latest_rpt = max(rpt_files, key=str, default=None) if rpt_files else None
             latest_adm = max(adm_files, key=str, default=None) if adm_files else None
@@ -93,30 +99,33 @@ class DayZLogWatcher:
             return None, None
 
     def _get_content(self, filename, file_type):
+        """Pobiera nowe dane z pliku z resetem pozycji przy rotacji"""
         if not self.connect():
             return ""
 
         try:
-            stat = self.ftp_host.stat(filename)
-            size = stat.st_size
+            size = self.ftp.size(filename)
             print(f"[FTP WATCHER] {filename} → {size:,} bajtów")
 
             last_pos = self.last_rpt_pos if file_type == 'rpt' else self.last_adm_pos
             last_file = self.last_rpt if file_type == 'rpt' else self.last_adm
 
+            # Reset przy nowym pliku (rotacja logów)
             if filename != last_file or last_file is None:
                 print(f"[FTP WATCHER] Nowy plik {file_type.upper()} → reset pozycji na koniec - 5MB")
-                last_pos = 0
+                last_pos = max(0, size - 5_000_000)  # ostatnie 5 MB starego pliku
 
             if last_pos >= size:
                 print(f"[FTP WATCHER] Brak nowych danych w {filename} (pozycja {last_pos:,} >= {size:,})")
                 return ""
 
-            with self.ftp_host.open(filename, "rb") as f:
-                f.seek(last_pos)
-                data = f.read()
-
+            data = bytearray()
+            self.ftp.retrbinary(f'RETR {filename}', data.extend, rest=last_pos)
             text = data.decode('utf-8', errors='replace')
+
+            # Pomijamy niepełną linię na początku
+            if text and '\n' in text:
+                text = text[text.index('\n') + 1:]
 
             lines_count = len(text.splitlines())
             print(f"[FTP WATCHER] Pobrano {lines_count} nowych linii z {filename} (od {last_pos:,} do {size:,} bajtów)")
@@ -125,6 +134,7 @@ class DayZLogWatcher:
                 preview = text[:200].replace('\n', ' | ')
                 print(f"[FTP WATCHER PREVIEW {file_type.upper()}] {preview}...")
 
+            # Aktualizacja pozycji
             if file_type == 'rpt':
                 self.last_rpt = filename
                 self.last_rpt_pos = size
@@ -139,6 +149,7 @@ class DayZLogWatcher:
             return ""
 
     def get_new_content(self):
+        """Główna metoda – pobiera nowe dane z najnowszych plików"""
         latest_rpt, latest_adm = self.get_latest_files()
         if not latest_rpt and not latest_adm:
             return ""
@@ -155,18 +166,20 @@ class DayZLogWatcher:
             if content_adm:
                 contents.append(content_adm)
 
+        # Zapisujemy pozycje TYLKO jeśli coś faktycznie przeczytaliśmy
         if contents:
             self._save_last_positions()
 
         return "\n".join(contents)
 
     def run(self):
+        """Uruchamia watcher w pętli co 30 sekund"""
         if self.running:
             print("[FTP WATCHER] Watcher już uruchomiony")
             return
 
         self.running = True
-        print(f"[FTP WATCHER] Uruchamiam pętlę sprawdzania co {CHECK_INTERVAL} sekund")
+        print("[FTP WATCHER] Uruchamiam pętlę sprawdzania co 30 sekund")
 
         def loop():
             while self.running:
@@ -174,11 +187,11 @@ class DayZLogWatcher:
                     content = self.get_new_content()
                     if content:
                         print(f"[FTP WATCHER] Znaleziono nowe dane – {len(content.splitlines())} linii")
-                        with open("debug_ftp_content.log", "a", encoding="utf-8") as debug_f:
-                            debug_f.write(f"\n--- NEW BATCH {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n{content}\n")
+                        # Tutaj możesz przekazać content do parsera (np. przez kolejkę lub globalną zmienną)
+                        # W Twoim przypadku – po prostu print, bo parser jest wywoływany w check_logs()
                 except Exception as e:
                     print(f"[FTP WATCHER LOOP ERROR] {e}")
                 
-                time.sleep(CHECK_INTERVAL)
+                time.sleep(30)  # ← dokładnie co 30 sekund
 
         threading.Thread(target=loop, daemon=True).start()

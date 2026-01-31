@@ -1,3 +1,4 @@
+# log_parser.py
 import re
 from datetime import datetime
 import os
@@ -88,6 +89,10 @@ async def process_line(bot, line: str):
         is_kick = "kicked" in line.lower() or "Kicked" in line
         is_ban = "banned" in line.lower() or "Banned" in line
 
+        # Specjalny warunek: jeśli to "kicked from server: 4 (Connection with host has been lost.)", traktuj jako normalny disconnect
+        if is_kick and "connection with host has been lost" in line.lower():
+            is_kick = False
+
         if is_ban:
             emoji = "☠️"
             color = "[31m"
@@ -139,7 +144,7 @@ async def process_line(bot, line: str):
 
         killed = False
 
-        match_kill = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: [\d.]+\] .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
+        match_kill = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] killed by (?P<cause>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters ?)?', line)
         if match_kill:
             victim = match_kill.group("victim").strip()
             victim_key = victim.lower()
@@ -148,31 +153,31 @@ async def process_line(bot, line: str):
             last_death_time[victim_key] = now
             killed = True
             detected_events["kill"] += 1
-            attacker = match_kill.group("attacker")
-            weapon = match_kill.group("weapon")
-            dist = match_kill.group("dist")
+            cause = match_kill.group("cause")
+            weapon = match_kill.group("weapon") or "nieznana"
+            dist = match_kill.group("dist") or "0"
+            msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {cause} z {weapon} z {dist} m"
+            ch = client.get_channel(CHANNEL_IDS["kills"])
+            if ch:
+                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+            return
+
+        match_kill_simple = re.search(r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
+        if match_kill_simple:
+            victim = match_kill_simple.group("victim").strip()
+            victim_key = victim.lower()
+            if victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
+                return
+            last_death_time[victim_key] = now
+            killed = True
+            detected_events["kill"] += 1
+            attacker = match_kill_simple.group("attacker")
+            weapon = match_kill_simple.group("weapon")
+            dist = match_kill_simple.group("dist")
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
                 await ch.send(f"```ansi\n[31m{msg}[0m\n```")
-
-        if not killed:
-            match_kill_simple = re.search(r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
-            if match_kill_simple:
-                victim = match_kill_simple.group("victim").strip()
-                victim_key = victim.lower()
-                if victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
-                    return
-                last_death_time[victim_key] = now
-                killed = True
-                detected_events["kill"] += 1
-                attacker = match_kill_simple.group("attacker")
-                weapon = match_kill_simple.group("weapon")
-                dist = match_kill_simple.group("dist")
-                msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
-                ch = client.get_channel(CHANNEL_IDS["kills"])
-                if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
 
         if not killed and "died." in line:
             match = re.search(r'Player "(?P<victim>[^"]+)" .*died.', line)

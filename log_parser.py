@@ -91,7 +91,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[38;5;208m"
+            color = "[33m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
@@ -215,7 +215,7 @@ async def process_line(bot, line: str):
                     if ch:
                         await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 else:
-                    color = "[33m" if (hp and hp < 30) else "[38;5;226m"
+                    color = "[35m" if (hp and hp < 30) else "[33m"
                     emoji = "🔥" if (hp and hp < 30) else "⚡"
                     extra = f" (HP: {hp:.1f})" if hp is not None else ""
                     part_str = f" w {part}" if part else ""

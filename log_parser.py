@@ -10,7 +10,7 @@ from collections import defaultdict
 
 last_death_time = defaultdict(float)  # victim.lower() → timestamp ostatniego killa/death
 player_login_times = {}
-guid_to_name = {}  # Mapowanie guid → nick dla KICK/BAN
+guid_to_name = {}                     # Mapowanie guid → nick dla KICK/BAN
 
 UNPARSED_LOG = "unparsed_lines.log"
 
@@ -49,7 +49,9 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
+    # ────────────────────────────────────────────────
     # 1. Połączono
+    # ────────────────────────────────────────────────
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<guid>[^)]+)\) is connected', line)
         if match:
@@ -64,8 +66,11 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
+    # ────────────────────────────────────────────────
     # 2. Rozłączono / Kick / Ban
-    if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
+    # ────────────────────────────────────────────────
+    if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or
+        "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
         name = (name_match.group(1) or name_match.group(2)).strip() if name_match else "????"
         id_match = re.search(r'\((?:id|steamID|uid)?=(?P<guid>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
@@ -102,7 +107,9 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
+    # ────────────────────────────────────────────────
     # 3. COT + Kick from COT
+    # ────────────────────────────────────────────────
     if "[COT]" in line:
         if "Kicked" in line:
             detected_events["disconnect"] += 1
@@ -114,6 +121,7 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
             return
+
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
         if match:
             detected_events["cot"] += 1
@@ -126,15 +134,16 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # 4. Hit / Kill / Death – poprawione i rozszerzone
-    if any(keyword in line.lower() for keyword in ["hit by", "killed by", "died.", "char_debug - kill", "player killed"]):
-        detected_events["hit"] += 1
+    # ────────────────────────────────────────────────
+    # 4. Hit / Kill / Death
+    # ────────────────────────────────────────────────
+    if any(kw in line.lower() for kw in ["hit by", "killed by", "died.", "char_debug - kill", "player killed"]):
 
         # 4.1 Zabójstwo (kill)
         kill_patterns = [
-            r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
+            r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
             r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            r'CHAR_DEBUG - KILL: Player "(?P<victim>[^"]+)" killed by Player "(?P<attacker>[^"]+)"',
+            r'CHAR_DEBUG - KILL: Player "(?P<victim>[^"]+)" killed by (?P<attacker>[^ ]+)',
         ]
 
         for pattern in kill_patterns:
@@ -147,11 +156,11 @@ async def process_line(bot, line: str):
 
                 last_death_time[victim_key] = now
                 detected_events["kill"] += 1
-                detected_events["hit"] -= 1  # kill to specjalny hit
+                detected_events["hit"] -= 1   # kill → nie liczymy jako zwykły hit
 
-                attacker = match.groupdict().get("attacker", "Środowisko")
-                weapon = match.groupdict().get("weapon", "nieznana")
-                dist = match.groupdict().get("dist", "0")
+                attacker = match.groupdict().get("attacker", "nieznany")
+                weapon   = match.groupdict().get("weapon",   "brak")
+                dist     = match.groupdict().get("dist",     "0")
 
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
@@ -159,7 +168,7 @@ async def process_line(bot, line: str):
                     await ch.send(embed=embed)
                 return
 
-        # 4.2 Zwykła śmierć (died. / upadek / zombie / głód itp.)
+        # 4.2 Zwykła śmierć (died.)
         if "died." in line:
             match = re.search(r'Player "(?P<victim>[^"]+)" .*died.', line, re.IGNORECASE)
             if match:
@@ -171,12 +180,12 @@ async def process_line(bot, line: str):
                 last_death_time[victim_key] = now
                 detected_events["kill"] += 1
 
-                cause = "nieznana przyczyna"
+                cause = "nieznana przyczyna (died.)"
                 if "fall" in line.lower():
                     cause = "upadek"
-                elif "zombie" in line.lower() or "infected" in line.lower():
+                elif any(w in line.lower() for w in ["zombie", "infected"]):
                     cause = "zombie / infekcja"
-                elif "starv" in line.lower() or "hunger" in line.lower():
+                elif any(w in line.lower() for w in ["starv", "hunger", "thirst"]):
                     cause = "głód / odwodnienie"
 
                 ch = client.get_channel(CHANNEL_IDS["kills"])
@@ -185,44 +194,51 @@ async def process_line(bot, line: str):
                     await ch.send(embed=embed)
                 return
 
-        # 4.3 Hit (trafienie – nie śmierć)
+        # 4.3 Trafienie (hit) – zarówno od gracza, jak i od zombie/infected
         hit_patterns = [
-            r'Player "(?P<victim>[^"]+)" .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            r'Player "(?P<victim>[^"]+)" \[[^]]+\]\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*for (?P<dmg>[\d.]+) damage',
+            # Najczęstszy format hitów od gracza
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            # Hit od Infected / Zombie / MeleeInfectedLong itp.
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>Infected|[^ ]+) .*for (?P<dmg>[\d.]+) damage \((?P<ammo>MeleeInfectedLong|Melee[^)]*)\)',
+            # Bardzo ogólny hit (ostatnia deska ratunku)
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) .*for (?P<dmg>[\d.]+) damage',
         ]
 
         for pattern in hit_patterns:
             match = re.search(pattern, line, re.IGNORECASE)
             if match:
-                victim = match.group("victim").strip()
+                victim   = match.group("victim").strip()
                 attacker = match.group("attacker").strip()
-                dmg = match.groupdict().get("dmg", "?")
-                part = match.groupdict().get("part", "?")
-                weapon = match.groupdict().get("weapon", "nieznana")
-                dist = match.groupdict().get("dist", "?")
-                hp_str = match.groupdict().get("hp", None)
+                dmg      = match.groupdict().get("dmg", "?")
+                part     = match.groupdict().get("part", "?")
+                weapon   = match.groupdict().get("weapon", "brak")
+                dist     = match.groupdict().get("dist", "?")
+                ammo     = match.groupdict().get("ammo", "?")
+                hp_str   = match.groupdict().get("hp", None)  # czasem jest HP
 
                 hp = float(hp_str) if hp_str else None
-                is_dead = (hp is not None and hp <= 0) or "(DEAD)" in line or "killed" in line.lower()
+                is_dead = (hp is not None and hp <= 0) or "(DEAD)" in line
 
                 if is_dead:
                     detected_events["kill"] += 1
                     detected_events["hit"] -= 1
                     ch = client.get_channel(CHANNEL_IDS["kills"])
                     if ch:
-                        embed = create_kill_embed(victim, attacker, weapon, dist if dist != "?" else "0")
+                        embed = create_kill_embed(victim, attacker, weapon if weapon != "brak" else ammo, dist if dist != "?" else "0")
                         await ch.send(embed=embed)
                 else:
                     color = "[33m" if (hp and hp < 30) else "[38;5;226m"
                     emoji = "🔥" if (hp and hp < 30) else "⚡"
                     extra = f" (HP: {hp:.1f})" if hp else ""
-                    msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg z {weapon} z {dist}m"
+                    msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
                     ch = client.get_channel(CHANNEL_IDS["damages"])
                     if ch:
                         await ch.send(f"```ansi\n{color}{msg}[0m\n```")
                 return
 
+    # ────────────────────────────────────────────────
     # 5. Chat
+    # ────────────────────────────────────────────────
     if "[Chat -" in line:
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
@@ -242,11 +258,10 @@ async def process_line(bot, line: str):
                 if fallback_ch:
                     await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
             return
-        else:
-            # Jeśli chat nie pasuje do regex – logujemy do unparsed
-            pass
 
-    # 6. Nierozpoznane
+    # ────────────────────────────────────────────────
+    # 6. Nierozpoznane → do pliku
+    # ────────────────────────────────────────────────
     detected_events["other"] += 1
     try:
         timestamp = datetime.utcnow().isoformat()

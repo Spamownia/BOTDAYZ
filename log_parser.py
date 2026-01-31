@@ -128,15 +128,13 @@ async def process_line(bot, line: str):
             return
 
     # 4. Hit / Kill / Death
-    if any(kw in line.lower() for kw in ["hit by", "killed by", "died.", "char_debug - kill", "player killed"]):
+    if any(kw in line.lower() for kw in ["hit by", "killed by", "died.", "char_debug - kill", "player killed", "explosion"]):
 
         # 4.1 Zabójstwo (kill) – czerwony tekst
         kill_patterns = [
-            # Kill by player
             r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            # Kill by non-player (Infected, FallDamage itp.)
             r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
-            # CHAR_DEBUG - KILL
+            r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[\d- A-Za-z]+ Frag Grenade|explosion)',
             r'CHAR_DEBUG - KILL: Player "(?P<victim>[^"]+)" killed by (?P<attacker>[^ ]+)',
         ]
 
@@ -188,14 +186,12 @@ async def process_line(bot, line: str):
                     await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 return
 
-        # 4.3 Hit – czytelny format, bez zbędnych ?
+        # 4.3 Hit – czytelny format
         hit_patterns = [
-            # Hit by player
-            r'Player "(?P<victim>[^"]+)" .*hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+\)) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            # Hit by non-player (Infected itp.)
-            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+\))',
-            # Ogólny fallback
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
             r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) .*for (?P<dmg>[\d.]+) damage',
+            r'Player "(?P<victim>[^"]+)" .*hit by explosion \((?P<ammo>[^)]+)\)',
         ]
 
         for pattern in hit_patterns:
@@ -214,7 +210,7 @@ async def process_line(bot, line: str):
                 is_dead = (hp is not None and hp <= 0) or "(DEAD)" in line
 
                 if is_dead:
-                    return  # Pomijamy hity z (DEAD) lub HP=0 – niech kill block obsłuży
+                    return  # Pomijamy – kill już powinien być złapany wyżej
 
                 color = "[33m" if (hp and hp < 30) else "[38;5;226m"
                 emoji = "🔥" if (hp and hp < 30) else "⚡"

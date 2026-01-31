@@ -49,31 +49,29 @@ class DayZLogWatcher:
             print(f"[FTP WATCHER] Błąd zapisu pozycji: {e}")
 
     def connect(self, max_retries=3):
-        """Stabilne połączenie z retry i timeoutami"""
+        """Zawsze nowe połączenie – najstabilniejsze na G-Portal"""
         if self.ftp:
             try:
-                self.ftp.voidcmd("NOOP")
-                print("[FTP WATCHER] Połączenie nadal aktywne")
-                return True
+                self.ftp.quit()
             except:
-                print("[FTP WATCHER] Stare połączenie padło – reconnect")
-                self.ftp = None
+                pass
+            self.ftp = None
 
         for attempt in range(max_retries):
             try:
-                print(f"[FTP WATCHER] Próba połączenia {attempt+1}/{max_retries}: {FTP_HOST}:{FTP_PORT} / {FTP_USER}")
-                self.ftp = FTP(timeout=30)
+                print(f"[FTP WATCHER] Nowe połączenie {attempt+1}/{max_retries}: {FTP_HOST}:{FTP_PORT}")
+                self.ftp = FTP(timeout=20)
                 self.ftp.connect(host=FTP_HOST, port=FTP_PORT)
                 self.ftp.login(user=FTP_USER, passwd=FTP_PASS)
                 self.ftp.cwd(FTP_LOG_DIR)
-                print(f"[FTP WATCHER] Połączono i cwd OK → {self.ftp.pwd()}")
+                print(f"[FTP WATCHER] Połączono → {self.ftp.pwd()}")
                 self.ftp.set_pasv(True)
                 return True
             except Exception as e:
                 print(f"[FTP WATCHER] Błąd połączenia (próba {attempt+1}): {e}")
                 self.ftp = None
-                time.sleep(5 * (attempt + 1))  # backoff: 5s, 10s, 15s...
-        
+                time.sleep(3 * (attempt + 1))  # 3s → 6s → 9s
+
         print(f"[FTP WATCHER] Nie udało się połączyć po {max_retries} próbach")
         return False
 
@@ -153,29 +151,14 @@ class DayZLogWatcher:
             self._save_last_positions()
         return "\n".join(contents)
 
-    def _keep_alive(self):
-        """Wątek wysyłający NOOP co 30 sekund, żeby połączenie nie padło"""
-        while self.running:
-            if self.ftp is not None:
-                try:
-                    self.ftp.voidcmd("NOOP")
-                    print("[FTP KEEP-ALIVE] NOOP wysłany – połączenie utrzymane")
-                except Exception as e:
-                    print(f"[FTP KEEP-ALIVE] Błąd NOOP: {e} → połączenie prawdopodobnie już padło")
-                    self.ftp = None  # wymusimy reconnect przy następnej operacji
-            time.sleep(30)
-
     def run(self):
-        """Uruchamia watcher w pętli co 60 sekund + keep-alive co 30 sekund"""
+        """Uruchamia watcher w pętli co 60 sekund"""
         if self.running:
             print("[FTP WATCHER] Watcher już uruchomiony")
             return
         
         self.running = True
-        print("[FTP WATCHER] Start – sprawdzanie co 60s + keep-alive NOOP co 30s")
-        
-        # Uruchamiamy wątek keep-alive
-        threading.Thread(target=self._keep_alive, daemon=True).start()
+        print("[FTP WATCHER] Start – nowe połączenie za każdym razem (stabilne na G-Portal)")
         
         def loop():
             while self.running:
@@ -183,7 +166,6 @@ class DayZLogWatcher:
                     content = self.get_new_content()
                     if content:
                         print(f"[FTP WATCHER] Znaleziono nowe dane – {len(content.splitlines())} linii")
-                        # Tutaj możesz przekazać content do parsera (np. przez kolejkę lub globalną zmienną)
                 except Exception as e:
                     print(f"[FTP WATCHER LOOP ERROR] {e}")
                 

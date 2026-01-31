@@ -34,7 +34,7 @@ CHAT_CHANNEL_MAPPING = {
     "Unknown":1466846633689088082
 }
 
-CHECK_INTERVAL = 15  # sekundy – teraz co 15 sekund
+CHECK_INTERVAL = 60  # sekundy – teraz co 15 sekund
 
 # BattleMetrics
 BATTLEMETRICS_SERVER_ID = os.getenv("BATTLEMETRICS_SERVER_ID")

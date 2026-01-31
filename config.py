@@ -34,9 +34,9 @@ CHAT_CHANNEL_MAPPING = {
     "Unknown":1466846633689088082
 }
 
-CHECK_INTERVAL = 15  # sekundy
+CHECK_INTERVAL = 15  # sekundy – teraz co 15 sekund
 
-# BattleMetrics – teraz bez wymuszonego błędu
+# BattleMetrics
 BATTLEMETRICS_SERVER_ID = os.getenv("BATTLEMETRICS_SERVER_ID")
 if not BATTLEMETRICS_SERVER_ID:
     print("[CONFIG] Brak BATTLEMETRICS_SERVER_ID – status online nie będzie aktualizowany")

@@ -10,7 +10,7 @@ from collections import defaultdict
 
 last_death_time = defaultdict(float)  # victim.lower() → timestamp ostatniego killa/death
 player_login_times = {}
-guid_to_name = {}                     # Mapowanie guid → nick dla KICK/BAN
+guid_to_name = {}                     # guid → nick dla KICK/BAN
 
 UNPARSED_LOG = "unparsed_lines.log"
 
@@ -49,9 +49,7 @@ async def process_line(bot, line: str):
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
-    # ────────────────────────────────────────────────
     # 1. Połączono
-    # ────────────────────────────────────────────────
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<guid>[^)]+)\) is connected', line)
         if match:
@@ -66,9 +64,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
 
-    # ────────────────────────────────────────────────
     # 2. Rozłączono / Kick / Ban
-    # ────────────────────────────────────────────────
     if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or
         "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
@@ -107,9 +103,7 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
 
-    # ────────────────────────────────────────────────
     # 3. COT + Kick from COT
-    # ────────────────────────────────────────────────
     if "[COT]" in line:
         if "Kicked" in line:
             detected_events["disconnect"] += 1
@@ -121,7 +115,6 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
             return
-
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
         if match:
             detected_events["cot"] += 1
@@ -134,12 +127,10 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
-    # ────────────────────────────────────────────────
     # 4. Hit / Kill / Death
-    # ────────────────────────────────────────────────
     if any(kw in line.lower() for kw in ["hit by", "killed by", "died.", "char_debug - kill", "player killed"]):
 
-        # 4.1 Zabójstwo (kill)
+        # 4.1 Zabójstwo (kill) – czerwony tekst
         kill_patterns = [
             r'Player "(?P<victim>[^"]+)" .*killed by (?P<attacker>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters)?',
             r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
@@ -152,20 +143,20 @@ async def process_line(bot, line: str):
                 victim = match.group("victim").strip()
                 victim_key = victim.lower()
                 if victim_key in last_death_time and now - last_death_time[victim_key] < 2.0:
-                    return  # anty-duplikat
+                    return
 
                 last_death_time[victim_key] = now
                 detected_events["kill"] += 1
-                detected_events["hit"] -= 1   # kill → nie liczymy jako zwykły hit
+                detected_events["hit"] -= 1
 
                 attacker = match.groupdict().get("attacker", "nieznany")
                 weapon   = match.groupdict().get("weapon",   "brak")
                 dist     = match.groupdict().get("dist",     "0")
 
+                msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
-                    embed = create_kill_embed(victim, attacker, weapon, dist)
-                    await ch.send(embed=embed)
+                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 return
 
         # 4.2 Zwykła śmierć (died.)
@@ -180,7 +171,7 @@ async def process_line(bot, line: str):
                 last_death_time[victim_key] = now
                 detected_events["kill"] += 1
 
-                cause = "nieznana przyczyna (died.)"
+                cause = "nieznana przyczyna"
                 if "fall" in line.lower():
                     cause = "upadek"
                 elif any(w in line.lower() for w in ["zombie", "infected"]):
@@ -188,19 +179,16 @@ async def process_line(bot, line: str):
                 elif any(w in line.lower() for w in ["starv", "hunger", "thirst"]):
                     cause = "głód / odwodnienie"
 
+                msg = f"{date_str} | {log_time} ☠️ {victim} zmarł – {cause}"
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
-                    embed = create_death_embed(victim, cause)
-                    await ch.send(embed=embed)
+                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 return
 
-        # 4.3 Trafienie (hit) – zarówno od gracza, jak i od zombie/infected
+        # 4.3 Hit – czytelny format, bez zbędnych ?
         hit_patterns = [
-            # Najczęstszy format hitów od gracza
             r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
-            # Hit od Infected / Zombie / MeleeInfectedLong itp.
-            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>Infected|[^ ]+) .*for (?P<dmg>[\d.]+) damage \((?P<ammo>MeleeInfectedLong|Melee[^)]*)\)',
-            # Bardzo ogólny hit (ostatnia deska ratunku)
+            r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
             r'Player "(?P<victim>[^"]+)" .*hit by (?P<attacker>[^ ]+) .*for (?P<dmg>[\d.]+) damage',
         ]
 
@@ -209,36 +197,38 @@ async def process_line(bot, line: str):
             if match:
                 victim   = match.group("victim").strip()
                 attacker = match.group("attacker").strip()
-                dmg      = match.groupdict().get("dmg", "?")
-                part     = match.groupdict().get("part", "?")
-                weapon   = match.groupdict().get("weapon", "brak")
-                dist     = match.groupdict().get("dist", "?")
-                ammo     = match.groupdict().get("ammo", "?")
-                hp_str   = match.groupdict().get("hp", None)  # czasem jest HP
+                dmg      = match.groupdict().get("dmg",    "?")
+                part     = match.groupdict().get("part",   "")
+                ammo     = match.groupdict().get("ammo",   "")
+                weapon   = match.groupdict().get("weapon", "")
+                dist     = match.groupdict().get("dist",   "")
+                hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)
+                hp = float(hp_match.group("hp")) if hp_match else None
 
-                hp = float(hp_str) if hp_str else None
                 is_dead = (hp is not None and hp <= 0) or "(DEAD)" in line
 
                 if is_dead:
                     detected_events["kill"] += 1
                     detected_events["hit"] -= 1
+                    msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon if weapon else ammo} z {dist if dist else '0'} m"
                     ch = client.get_channel(CHANNEL_IDS["kills"])
                     if ch:
-                        embed = create_kill_embed(victim, attacker, weapon if weapon != "brak" else ammo, dist if dist != "?" else "0")
-                        await ch.send(embed=embed)
+                        await ch.send(f"```ansi\n[31m{msg}[0m\n```")
                 else:
                     color = "[33m" if (hp and hp < 30) else "[38;5;226m"
                     emoji = "🔥" if (hp and hp < 30) else "⚡"
-                    extra = f" (HP: {hp:.1f})" if hp else ""
-                    msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
+                    extra = f" (HP: {hp:.1f})" if hp is not None else ""
+                    part_str = f" w {part}" if part else ""
+                    ammo_str = f" ({ammo})" if ammo else ""
+                    weapon_str = f" z {weapon}" if weapon else ""
+                    dist_str = f" z {dist}m" if dist else ""
+                    msg = f"{date_str} | {log_time} {emoji} {victim}{extra}{part_str} trafiony przez {attacker} za {dmg} dmg{ammo_str}{weapon_str}{dist_str}"
                     ch = client.get_channel(CHANNEL_IDS["damages"])
                     if ch:
                         await ch.send(f"```ansi\n{color}{msg}[0m\n```")
                 return
 
-    # ────────────────────────────────────────────────
     # 5. Chat
-    # ────────────────────────────────────────────────
     if "[Chat -" in line:
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
@@ -259,9 +249,7 @@ async def process_line(bot, line: str):
                     await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
             return
 
-    # ────────────────────────────────────────────────
-    # 6. Nierozpoznane → do pliku
-    # ────────────────────────────────────────────────
+    # 6. Nierozpoznane
     detected_events["other"] += 1
     try:
         timestamp = datetime.utcnow().isoformat()

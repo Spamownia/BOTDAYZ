@@ -30,7 +30,7 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    print(f"[DEBUG LINE] Przetwarzam linię: {line[:150]}...")
+    #print(f"[DEBUG LINE] Przetwarzam linię: {line[:150]}...")
 
     processed_count += 1
     now = time.time()
@@ -140,7 +140,7 @@ async def process_line(bot, line: str):
 
     # Chat
     if "[Chat -" in line:
-        print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
+        #print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
 
         match = re.search(r'\[Chat - (?P<channel_type>[^\]]+)\]\("(?P<player>[^"]+)"\(id=[^)]+\)\): (?P<message>.*)', line)
         if match:
@@ -149,7 +149,7 @@ async def process_line(bot, line: str):
             player = match.group("player").strip()
             message = match.group("message").strip() or "[brak]"
 
-            print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
+            #print(f"[CHAT DEBUG] Rozpoznano: {channel_type} | Gracz: {player} | Wiadomość: '{message}'")
 
             color_map = {"Global": "[34m", "Admin": "[31m", "Team": "[34m", "Direct": "[37m", "Unknown": "[33m"}
             ansi_color = color_map.get(channel_type, color_map["Unknown"])
@@ -158,7 +158,7 @@ async def process_line(bot, line: str):
             ch = client.get_channel(discord_ch_id)
             if ch:
                 await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
-                print(f"[CHAT] Wysłano na kanał {discord_ch_id} ({channel_type})")
+                #print(f"[CHAT] Wysłano na kanał {discord_ch_id} ({channel_type})")
             else:
                 print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony – fallback do connections")
                 fallback_ch = client.get_channel(CHANNEL_IDS["connections"])

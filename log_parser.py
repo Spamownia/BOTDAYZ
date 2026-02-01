@@ -172,8 +172,7 @@ async def process_line(bot, line: str):
             if "hit by" in line and not 'Player "' in line[line.find("hit by"):]:
                 # Najprostszy i najczęściej spotykany format w DayZ
                 match_npc_hit = re.search(
-                    r'Player "(?P<victim>[^"]+)" [^)]+ pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] '
-                    r'hit by (?P<attacker>Infected|Zombie|ZmbM|ZmbF|[A-Za-z]+) into (?P<part>\w+).*',
+                    r'Player "(?P<victim>[^"]+)"[^)]+ pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] hit by (?P<attacker>Infected|Zombie|ZmbM|ZmbF|[A-Za-z]+) into (?P<part>\w+).*',
                     line
                 )
                 
@@ -217,7 +216,7 @@ async def process_line(bot, line: str):
                         await ch.send(f"```ansi\n{color}{msg}[0m\n```")
                     return
 
-            match_hit_player = re.search(r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
+            match_hit_player = re.search(r'Player "(?P<victim>[^"]+)"\((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters', line)
             if match_hit_player:
                 victim = match_hit_player.group("victim").strip()
                 victim_key = victim.lower()

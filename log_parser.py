@@ -43,7 +43,6 @@ async def process_line(bot, line: str):
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
-
     # 1. Połączono
     if "is connected" in line and 'Player "' in line:
         match = re.search(r'Player "(?P<name>[^"]+)"\((?:steamID|id)=(?P<guid>[^)]+)\) is connected', line)
@@ -58,7 +57,6 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
-
     # 2. Rozłączono + Kick/Ban – poprawione rozróżnianie
     if ("disconnected" in line.lower() or "has been disconnected" in line.lower() or "kicked" in line.lower() or "banned" in line.lower()) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
@@ -97,7 +95,6 @@ async def process_line(bot, line: str):
         if ch:
             await ch.send(f"```ansi\n{color}{msg}[0m\n```")
         return
-
     # 3. COT + Kick from COT
     if "[COT]" in line:
         if "Kicked" in line:
@@ -121,7 +118,6 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
-
     # 4. Hit / Kill – anty-duplikaty (Twoja wersja bez zmian)
     if "hit by" in line or "killed by" in line or "CHAR_DEBUG - KILL" in line or "died." in line:
         hp_match = re.search(r'\[HP: (?P<hp>[\d.]+)\]', line)

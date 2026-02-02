@@ -9,7 +9,7 @@ from utils import create_connect_embed, create_kill_embed, create_death_embed, c
 from collections import defaultdict
 
 last_death_time = defaultdict(float)  # victim.lower() → timestamp ostatniego killa
-player_login_times = {}
+player_login_times = {}  # name -> datetime object
 guid_to_name = {}  # Mapowanie guid → nick dla KICK/BAN
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
@@ -46,6 +46,7 @@ async def process_line(bot, line: str):
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
+    log_dt = datetime.combine(today.date(), datetime.strptime(log_time, "%H:%M:%S").time())
 
     # Klucz deduplikacji - używamy log_time + name + action
     def get_event_key(action, name):
@@ -63,7 +64,7 @@ async def process_line(bot, line: str):
                 return
             processed_events.add(event_key)
             detected_events["join"] += 1
-            player_login_times[name] = datetime.utcnow()
+            player_login_times[name] = log_dt
             guid_to_name[guid] = name
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
@@ -87,7 +88,7 @@ async def process_line(bot, line: str):
         detected_events["disconnect"] += 1
         time_online = "nieznany"
         if name in player_login_times:
-            delta = datetime.utcnow() - player_login_times[name]
+            delta = log_dt - player_login_times[name]
             minutes = int(delta.total_seconds() // 60)
             seconds = int(delta.total_seconds() % 60)
             time_online = f"{minutes} min {seconds} s"
@@ -139,7 +140,7 @@ async def process_line(bot, line: str):
         victim_key = ""
         # Hit by zombie
         match_hit_z = re.search(
-            r'Player "(?P<victim>[^"]+)"((?:id=[^)]+ pos=<[^>]+>)?)[HP: (?P<hp>[\d.]+)] hit by (?P<z_type>Infected|Animal|Wolf|Bear) into (?P<part>\w+)(\d+) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
+            r'Player "(?P<victim>[^"]+)"((?:id=[^ )]+\s+pos=<[^>]+>)?)\[HP: (?P<hp>[\d.]+)\] hit by (?P<z_type>Infected|Animal|Wolf|Bear) into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\)',
             line
         )
         if match_hit_z:
@@ -147,10 +148,11 @@ async def process_line(bot, line: str):
             victim_key = victim.lower()
             hp_val = float(match_hit_z.group("hp"))
             is_dead = hp_val <= 0 or "(DEAD)" in line
-            if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
+            current_timestamp = log_dt.timestamp()
+            if is_dead and victim_key in last_death_time and current_timestamp - last_death_time[victim_key] < 1.5:
                 return
             if is_dead:
-                last_death_time[victim_key] = now
+                last_death_time[victim_key] = current_timestamp
             z_type = match_hit_z.group("z_type")
             part = match_hit_z.group("part")
             dmg = match_hit_z.group("dmg")
@@ -175,7 +177,7 @@ async def process_line(bot, line: str):
 
         # Hit by vehicle/explosion/fall/environment
         match_hit_env = re.search(
-            r'Player "(?P<victim>[^"]+)"((?:id=[^)]+ pos=<[^>]+>)?)[HP: (?P<hp>[\d.]+)] hit by (?P<type>FallDamage|(?P<vehicle>[^ ]+)|explosion) .*for (?P<dmg>[\d.]+) damage',
+            r'Player "(?P<victim>[^"]+)"((?:id=[^ )]+\s+pos=<[^>]+>)?)\[HP: (?P<hp>[\d.]+)\] hit by (?P<type>FallDamage|(?P<vehicle>[^ ]+)|explosion) .*for (?P<dmg>[\d.]+) damage',
             line
         )
         if match_hit_env:
@@ -183,10 +185,11 @@ async def process_line(bot, line: str):
             victim_key = victim.lower()
             hp_val = float(match_hit_env.group("hp"))
             is_dead = hp_val <= 0 or "(DEAD)" in line
-            if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
+            current_timestamp = log_dt.timestamp()
+            if is_dead and victim_key in last_death_time and current_timestamp - last_death_time[victim_key] < 1.5:
                 return
             if is_dead:
-                last_death_time[victim_key] = now
+                last_death_time[victim_key] = current_timestamp
             dmg_type = match_hit_env.group("type")
             dmg = match_hit_env.group("dmg")
             vehicle = match_hit_env.group("vehicle") or ""
@@ -202,6 +205,7 @@ async def process_line(bot, line: str):
                 emoji = "🚗"
                 color = "[33m"
                 extra = f" (HP: {hp_val:.1f})"
+                vehicle = dmg_type  # since type captured vehicle
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {vehicle} (pojazd)"
             ch = client.get_channel(CHANNEL_IDS["damages"])
             if ch:
@@ -209,7 +213,7 @@ async def process_line(bot, line: str):
             return
         # Hit player vs player
         match_hit_player = re.search(
-            r'Player "(?P<victim>[^"]+)"((?:id=[^)]+ pos=<[^>]+>)?)[HP: (?P<hp>[\d.]+)] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)(\d+) for (?P<dmg>[\d.]+) damage ((?P<ammo>[^)]+)) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
+            r'Player "(?P<victim>[^"]+)"((?:id=[^ )]+\s+pos=<[^>]+>)?)\[HP: (?P<hp>[\d.]+)\] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)\(\d+\) for (?P<dmg>[\d.]+) damage \((?P<ammo>[^)]+)\) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
             line
         )
         if match_hit_player:
@@ -217,10 +221,11 @@ async def process_line(bot, line: str):
             victim_key = victim.lower()
             hp_val = float(match_hit_player.group("hp"))
             is_dead = hp_val <= 0 or "(DEAD)" in line
-            if is_dead and victim_key in last_death_time and now - last_death_time[victim_key] < 1.5:
+            current_timestamp = log_dt.timestamp()
+            if is_dead and victim_key in last_death_time and current_timestamp - last_death_time[victim_key] < 1.5:
                 return
             if is_dead:
-                last_death_time[victim_key] = now
+                last_death_time[victim_key] = current_timestamp
             detected_events["hit"] += 1
             attacker = match_hit_player.group("attacker")
             part = match_hit_player.group("part")
@@ -253,7 +258,7 @@ async def process_line(bot, line: str):
     # 5. Chat
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
-        match = re.search(r'[Chat - (?P<channel_type>[^]]+)]("(?P<player>[^"]+)"(id=[^)]+)): (?P<message>.*)', line)
+        match = re.search(r'\[Chat - (?P<channel_type>[^]]+)\]\("(?P<player>[^"]+)"\((id=[^)]+)\)\): (?P<message>.*)', line)
         if match:
             detected_events["chat"] += 1
             channel_type = match.group("channel_type").strip()

@@ -18,12 +18,12 @@ SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {
-    "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0
+    "join": 0, "disconnect": 0, "cot": 0, "hit": 0, "kill": 0, "chat": 0, "other": 0,
+    "login_queue": 0  # ← nowy licznik – opcjonalny
 }
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
-
     client = bot
     line = line.strip()
     if not line:
@@ -37,7 +37,6 @@ async def process_line(bot, line: str):
         if not any(detected_events.values()):
             summary += " (nic nie wykryto)"
         print(summary)
-
         last_summary_time = now
         processed_count = 0
         for k in detected_events:
@@ -45,7 +44,6 @@ async def process_line(bot, line: str):
 
     time_match = re.search(r'^\s*(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
-
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
 
@@ -68,15 +66,11 @@ async def process_line(bot, line: str):
     if any(x in line.lower() for x in ["disconnected", "has been disconnected", "kicked", "banned"]) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
         name = (name_match.group(1) or name_match.group(2)).strip() if name_match else "????"
-
         id_match = re.search(r'\((?:id|steamID|uid)?=(?P<guid>[^ )]+)(?:\s+pos=<[^>]+>)?\)', line, re.IGNORECASE)
         guid = id_match.group("guid").strip() if id_match else "brak"
-
         if guid in guid_to_name:
             name = guid_to_name[guid]
-
         detected_events["disconnect"] += 1
-
         time_online = "nieznany"
         if name in player_login_times:
             delta = datetime.utcnow() - player_login_times[name]
@@ -84,26 +78,22 @@ async def process_line(bot, line: str):
             seconds = int(delta.total_seconds() % 60)
             time_online = f"{minutes} min {seconds} s"
             del player_login_times[name]
-
         is_kick = "kicked" in line.lower() or "Kicked" in line
         is_ban = "banned" in line.lower() or "Banned" in line
-
         if is_kick and "connection with host has been lost" in line.lower():
             is_kick = False
-
         if is_ban:
             emoji = "☠️"
             color = "[31m"
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[33m"
+            color = "[38;5;208m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
             color = "[31m"
             extra = ""
-
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
@@ -120,9 +110,8 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+                await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
             return
-
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
         if match:
             detected_events["cot"] += 1
@@ -132,7 +121,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
-                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+                await ch.send(f"```ansi\n[37m{msg}[0m\n```")
             return
 
     # 4. Hit / Kill
@@ -249,13 +238,13 @@ async def process_line(bot, line: str):
                     kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                     if kill_ch:
                         await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-                elif hp and hp < 20:
+                elif hp < 20:
                     emoji = "🔥"
-                    color = "[35m"
+                    color = "[33m"
                     extra = f" (HP: {hp:.1f})"
                 else:
                     emoji = "🧟"
-                    color = "[33m"
+                    color = "[35m"
                     extra = f" (HP: {hp:.1f})" if hp else ""
 
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {attacker} w {part}"
@@ -292,11 +281,11 @@ async def process_line(bot, line: str):
                     extra = " (ŚMIERĆ – pojazd)"
                 elif hp < 20:
                     emoji = "🔥"
-                    color = "[35m"
+                    color = "[33m"
                     extra = f" (HP: {hp:.1f})"
                 else:
                     emoji = "🚗"
-                    color = "[33m"
+                    color = "[36m"
                     extra = f" (HP: {hp:.1f})"
 
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {vehicle} (pojazd)"
@@ -339,11 +328,11 @@ async def process_line(bot, line: str):
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
             elif hp_val < 20:
-                color = "[35m"
+                color = "[33m"
                 emoji = "🔥"
                 extra = f" (HP: {hp_val:.1f})"
             else:
-                color = "[33m"
+                color = "[38;5;226m"
                 emoji = "⚡"
                 extra = f" (HP: {hp_val:.1f})"
 
@@ -379,6 +368,18 @@ async def process_line(bot, line: str):
             return
         else:
             print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")
+
+    # 6. Dołączenie do kolejki logowania (Login: Player ... preloading at:)
+    if "Login: Player " in line and "preloading at:" in line:
+        match = re.search(r'Login: Player "(?P<name>[^"]+)" .*preloading at:', line)
+        if match:
+            detected_events["login_queue"] += 1
+            name = match.group("name").strip()
+            msg = f"{date_str} | {log_time} 📥 {name} dołączył do kolejki logowania"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n[36m{msg}[0m\n```")  # cyan kolor
+            return
 
     # Nierozpoznane
     detected_events["other"] += 1

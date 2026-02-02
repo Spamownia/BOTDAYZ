@@ -105,10 +105,10 @@ async def process_line(bot, line: str):
             extra = ""
 
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
-        ch = client.get_channel(CHANNEL_IDS["connections"])
-        if ch:
-            await ch.send(f"```ansi\n{color}{msg}[0m\n```")
-        return
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+            return
 
     # 3. COT + Kick from COT
     if "[COT]" in line:
@@ -223,7 +223,7 @@ async def process_line(bot, line: str):
         # ────────────────────────────────────────────────
         if "hit by" in line and 'Player "' not in line[line.find("hit by"):]:
             match_npc_hit = re.search(
-                r'Player "(?P<victim>[^"]+)" .* pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] hit by (?P<attacker>Infected|Zombie|Zmb[A-Za-z_]+|[A-Za-z ]+) into (?P<part>\w+).*',
+                r'Player "(?P<victim>[^"]+)" .* pos=<[^>]+>)\[HP: (?P<hp>[\d.]+)\] hit by (?P<attacker>Infected|Zombie|Zmb[A-Za-z_]+|[A-Za-z ]+) into (?P<part>\w+).*',
                 line
             )
             if match_npc_hit:
@@ -249,7 +249,7 @@ async def process_line(bot, line: str):
                     kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                     if kill_ch:
                         await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
-                elif hp and hp < 20:
+                elif hp < 20:
                     emoji = "🔥"
                     color = "[33m"
                     extra = f" (HP: {hp:.1f})"
@@ -342,6 +342,10 @@ async def process_line(bot, line: str):
                 color = "[33m"
                 emoji = "🔥"
                 extra = f" (HP: {hp_val:.1f})"
+            elif hp_val < 50:
+                color = "[38;5;208m"  # pomarańczowy
+                emoji = "⚠️"
+                extra = f" (HP: {hp_val:.1f})"
             else:
                 color = "[38;5;226m"
                 emoji = "⚡"
@@ -380,6 +384,49 @@ async def process_line(bot, line: str):
                 fallback_ch = client.get_channel(CHANNEL_IDS["connections"])
                 if fallback_ch:
                     await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
+            return
+
+    # 6. Nieprzytomny / Odzyskał przytomność
+    if "is unconscious" in line:
+        match = re.search(r'Player "(?P<name>[^"]+)" .*is unconscious', line)
+        if match:
+            name = match.group("name").strip()
+            msg = f"{date_str} | {log_time} 😵 {name} jest nieprzytomny"
+            ch = client.get_channel(CHANNEL_IDS["kills"])
+            if ch:
+                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+            return
+
+    if "regained consciousness" in line:
+        match = re.search(r'Player "(?P<name>[^"]+)" .*regained consciousness', line)
+        if match:
+            name = match.group("name").strip()
+            msg = f"{date_str} | {log_time} 👀 {name} odzyskał przytomność"
+            ch = client.get_channel(CHANNEL_IDS["kills"])
+            if ch:
+                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+            return
+
+    # 7. Dołączył do kolejki logowania / Preloading
+    if "Login: Player " in line and "preloading at:" in line:
+        match = re.search(r'Login: Player "(?P<name>[^"]+)" .*preloading at:', line)
+        if match:
+            name = match.group("name").strip()
+            msg = f"{date_str} | {log_time} 📥 {name} dołączył do kolejki logowania"
+            ch = client.get_channel(CHANNEL_IDS["connections"])
+            if ch:
+                await ch.send(f"```ansi\n[36m{msg}[0m\n```")
+            return
+
+    # 8. Wybiera respawn
+    if "is choosing to respawn" in line:
+        match = re.search(r'Player "(?P<name>[^"]+)" .*is choosing to respawn', line)
+        if match:
+            name = match.group("name").strip()
+            msg = f"{date_str} | {log_time} 🔄 {name} wybiera respawn"
+            ch = client.get_channel(CHANNEL_IDS["kills"])
+            if ch:
+                await ch.send(f"```ansi\n[35m{msg}[0m\n```")
             return
 
     # Nierozpoznane

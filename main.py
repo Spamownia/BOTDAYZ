@@ -9,15 +9,12 @@ import warnings
 import logging
 import time
 from datetime import datetime
-import queue  # ← DODANE
+import queue
 
-# Importy z Twoich plików
 from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
-
-# Kolejka do przesyłania linii z watchera do parsera
-line_queue = queue.Queue()
+from shared import line_queue  # ← import kolejki z shared.py
 
 # Wyciszenie ostrzeżeń
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -166,8 +163,7 @@ async def on_ready():
     threading.Thread(target=parse_queue_loop, daemon=True).start()
 
     # Pierwsze sprawdzenie (opcjonalne)
-    await check_and_parse_new_content()
-
+    # await check_and_parse_new_content()  # możesz zostawić lub usunąć
 
 # ────────────────────────────────────────────────
 # Bezpieczne uruchamianie + czyszczenie sesji

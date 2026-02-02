@@ -4,8 +4,10 @@ import time
 import json
 import os
 import threading
+import re
+from datetime import datetime
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-from shared import line_queue  # ← import z shared.py
+from shared import line_queue  # import kolejki z shared.py
 
 LAST_POSITIONS_FILE = 'last_positions.json'
 
@@ -15,7 +17,7 @@ class DayZLogWatcher:
         self.last_adm = None
         self.last_adm_pos = 0
         self._load_last_positions()
-        print("[FTP WATCHER] Inicjalizacja – ciągłe tailing TYLKO .ADM")
+        print("[FTP WATCHER] Inicjalizacja – tailing TYLKO .ADM (bez NLST)")
         self.running = False
 
     def _load_last_positions(self):
@@ -73,14 +75,36 @@ class DayZLogWatcher:
             return None
 
         try:
-            files = self.ftp.nlst()
-            adm_files = [f for f in files if f.endswith('.ADM') and 'DayZServer_x64' in f]
+            # Użyj LIST zamiast NLST
+            lines = []
+            self.ftp.retrlines('LIST', lines.append)
+
+            # Parsuj linie LIST (format: data godzina <rozmiar> nazwa)
+            # Przykład: "-rw-r--r--   1 user group   12345 Feb 02 14:30 DayZServer_x64_2026-02-02_12-02-29.ADM"
+            adm_files = []
+            for line in lines:
+                if '.ADM' in line and 'DayZServer_x64' in line:
+                    # Wyciągnij nazwę pliku (ostatnie pole)
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        filename = ' '.join(parts[8:])
+                        if filename.endswith('.ADM'):
+                            # Wyciągnij datę z nazwy pliku (bezpieczniej niż z LIST)
+                            match = re.search(r'DayZServer_x64_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.ADM', filename)
+                            if match:
+                                file_date = datetime.strptime(match.group(1), '%Y-%m-%d_%H-%M-%S')
+                                adm_files.append((file_date, filename))
+
             if not adm_files:
+                print("[FTP WATCHER] Nie znaleziono plików .ADM w katalogu")
                 return None
-            latest = max(adm_files, key=lambda f: f.split('_')[2:4])
+
+            # Najnowszy plik według daty w nazwie
+            latest = max(adm_files, key=lambda x: x[0])[1]
+            print(f"[FTP WATCHER] Najnowszy plik ADM: {latest}")
             return latest
         except Exception as e:
-            print(f"[FTP WATCHER] Błąd listy plików: {e}")
+            print(f"[FTP WATCHER] Błąd pobierania listy plików (LIST): {e}")
             return None
 
     def get_new_adm_content(self):
@@ -134,7 +158,7 @@ class DayZLogWatcher:
             return
 
         self.running = True
-        print("[FTP WATCHER] Uruchamiam ciągłe tailing .ADM co 5 sekund")
+        print("[FTP WATCHER] Uruchamiam ciągłe tailing .ADM co 5 sekund (bez NLST)")
 
         def loop():
             while self.running:

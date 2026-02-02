@@ -1,3 +1,4 @@
+# log_parser.py
 import re
 from datetime import datetime
 import os
@@ -7,9 +8,9 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 from utils import create_connect_embed, create_kill_embed, create_death_embed, create_chat_embed
 from collections import defaultdict
 
-last_death_time = defaultdict(float)  # victim.lower() → timestamp ostatniego killa
+last_death_time = defaultdict(float) # victim.lower() → timestamp ostatniego killa
 player_login_times = {}
-guid_to_name = {}  # Mapowanie guid → nick dla KICK/BAN
+guid_to_name = {} # Mapowanie guid → nick dla KICK/BAN
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
@@ -36,28 +37,34 @@ async def process_line(bot, line: str):
         processed_count = 0
         for k in detected_events:
             detected_events[k] = 0
+
     time_match = re.search(r'^\s*(\d{1,2}:\d{2}:\d{2})(?:.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
-    
-    # 0. Dołączenie do kolejki logowania
+
+    # ────────────────────────────────────────────────
+    # NOWOŚĆ: Dołączenie do kolejki logowania
+    # ────────────────────────────────────────────────
     if "[Login]: Adding player" in line:
-        match_queue = re.search(r'\[Login\]: Adding player (?P<name>[^(]+) \((?P<id>[^)]+)\) to login queue at position (?P<pos>\d+)', line.strip())
-        if match_queue:
+        match = re.search(
+            r'\[Login\]: Adding player (?P<name>[^(]+) \((?P<dpnid>\d+)\) to login queue at position (?P<pos>\d+)',
+            line
+        )
+        if match:
             detected_events["join"] += 1
-            name = match_queue.group("name").strip()
-            player_id = match_queue.group("id").strip()
-            pos = match_queue.group("pos")
-            msg = f"{date_str} | {log_time} 🟡 {name} ({player_id}) dołączył do kolejki logowania na pozycji {pos}"
+            name = match.group("name").strip()
+            dpnid = match.group("dpnid")
+            pos = match.group("pos")
+            msg = f"{date_str} | {log_time} 🟡 {name} ({dpnid}) dołączył do kolejki logowania – pozycja {pos}"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
                 await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
-    
+
     # 1. Połączono
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "(?P<name>[^"]+)"(?:steamID∣id)=(?P<guid>[)]+) (?:steamID|id)=(?P<guid>[^)]+) (?:steamID∣id)=(?P<guid>[)]+) is connected', line)
+        match = re.search(r'Player "(?P<name>[^"]+)"$ (?:steamID|id)=(?P<guid>[^)]+) $ is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group("name").strip()
@@ -69,7 +76,7 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[32m{msg}[0m\n```")
             return
-    
+
     # 2. Rozłączono + Kick/Ban
     if any(x in line.lower() for x in ["disconnected", "has been disconnected", "kicked", "banned"]) and 'Player ' in line:
         name_match = re.search(r'Player\s*(?:"([^"]+)"|([^(]+))', line, re.IGNORECASE)
@@ -105,9 +112,9 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}{extra}"
         ch = client.get_channel(CHANNEL_IDS["connections"])
         if ch:
-            await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+            await ch.send(f"ansi\n{color}{msg}[0m\n")
         return
-    
+
     # 3. COT + Kick from COT
     if "[COT]" in line:
         if "Kicked" in line:
@@ -118,7 +125,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+                await ch.send(f"ansi\n[33m{msg}[0m\n")
             return
         match = re.search(r'[COT] (?P<steamid>\d{17,}): (?P<action>.+?)(?: [guid=(?P<guid>[^]]+)])?$', line)
         if match:
@@ -129,15 +136,14 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
-                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
+                await ch.send(f"ansi\n[33m{msg}[0m\n")
             return
-    
+
     # 4. Hit / Kill
     if any(x in line for x in ["hit by", "killed by", "CHAR_DEBUG - KILL", "died.", "bled out"]):
         hp_match = re.search(r'[HP: (?P<hp>[\d.]+)]', line)
         hp = float(hp_match.group("hp")) if hp_match else None
         killed = False
-        
         # Kill – wariant 1 (killed by coś)
         match_kill = re.search(
             r'Player "(?P<victim>[^"]+)" ((?:id=[^)]+ pos=<[^>]+>)?)[HP: (?P<hp>[\d.]+)] killed by (?P<cause>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters ?)?',
@@ -157,9 +163,8 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {cause} z {weapon} z {dist} m"
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+                await ch.send(f"ansi\n[31m{msg}[0m\n")
             return
-        
         # Kill – wariant 2 (player vs player)
         match_kill_simple = re.search(
             r'Player "(?P<victim>[^"]+)" .*killed by Player "(?P<attacker>[^"]+)" .*with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
@@ -179,9 +184,8 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+                await ch.send(f"ansi\n[31m{msg}[0m\n")
             return
-        
         # died.
         if "died." in line:
             match = re.search(r'Player "(?P<victim>[^"]+)" .*died.', line)
@@ -196,9 +200,8 @@ async def process_line(bot, line: str):
                 msg = f"{date_str} | {log_time} ☠️ {victim} zmarł (died.)"
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+                    await ch.send(f"ansi\n[31m{msg}[0m\n")
                 return
-        
         # bled out
         if "bled out" in line:
             match = re.search(r'Player "(?P<victim>[^"]+)" .*bled out', line)
@@ -212,9 +215,8 @@ async def process_line(bot, line: str):
                 msg = f"{date_str} | {log_time} ☠️ {victim} wykrwawił się (bled out)"
                 ch = client.get_channel(CHANNEL_IDS["kills"])
                 if ch:
-                    await ch.send(f"```ansi\n[31m{msg}[0m\n```")
+                    await ch.send(f"ansi\n[31m{msg}[0m\n")
                 return
-        
         # ────────────────────────────────────────────────
         # Hit od NPC / Infected / Zombie
         # ────────────────────────────────────────────────
@@ -242,7 +244,7 @@ async def process_line(bot, line: str):
                     kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} ({part})"
                     kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                     if kill_ch:
-                        await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                        await kill_ch.send(f"ansi\n[31m{kill_msg}[0m\n")
                 elif hp and hp < 20:
                     emoji = "🔥"
                     color = "[35m"
@@ -254,9 +256,8 @@ async def process_line(bot, line: str):
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {attacker} w {part}"
                 ch = client.get_channel(CHANNEL_IDS["damages"])
                 if ch:
-                    await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    await ch.send(f"ansi\n{color}{msg}[0m\n")
                 return
-        
         # ────────────────────────────────────────────────
         # Hit od pojazdu (TransportHit)
         # ────────────────────────────────────────────────
@@ -291,9 +292,8 @@ async def process_line(bot, line: str):
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {vehicle} (pojazd)"
                 ch = client.get_channel(CHANNEL_IDS["damages"])
                 if ch:
-                    await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                    await ch.send(f"ansi\n{color}{msg}[0m\n")
                 return
-        
         # Hit player vs player
         match_hit_player = re.search(
             r'Player "(?P<victim>[^"]+)"((?:id=[^)]+ pos=<[^>]+>)?)[HP: (?P<hp>[\d.]+)] hit by Player "(?P<attacker>[^"]+)" .*into (?P<part>\w+)(\d+) for (?P<dmg>[\d.]+) damage ((?P<ammo>[^)]+)) with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters',
@@ -322,7 +322,7 @@ async def process_line(bot, line: str):
                 kill_msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {attacker} z {weapon} z {dist} m"
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
                 if kill_ch:
-                    await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
+                    await kill_ch.send(f"ansi\n[31m{kill_msg}[0m\n")
             elif hp_val < 20:
                 color = "[35m"
                 emoji = "🔥"
@@ -334,9 +334,9 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} {emoji} {victim}{extra} trafiony przez {attacker} w {part} za {dmg} dmg ({ammo}) z {weapon} z {dist}m"
             ch = client.get_channel(CHANNEL_IDS["damages"])
             if ch:
-                await ch.send(f"```ansi\n{color}{msg}[0m\n```")
+                await ch.send(f"ansi\n{color}{msg}[0m\n")
             return
-    
+
     # 5. Chat
     if "[Chat -" in line:
         print(f"[CHAT DEBUG] Przetwarzam linię chatu: {line[:150]}...")
@@ -353,17 +353,17 @@ async def process_line(bot, line: str):
             discord_ch_id = CHAT_CHANNEL_MAPPING.get(channel_type, CHANNEL_IDS["chat"])
             ch = client.get_channel(discord_ch_id)
             if ch:
-                await ch.send(f"```ansi\n{ansi_color}{msg}[0m\n```")
+                await ch.send(f"ansi\n{ansi_color}{msg}[0m\n")
                 print(f"[CHAT] Wysłano na kanał {discord_ch_id} ({channel_type})")
             else:
                 print(f"[CHAT ERROR] Kanał {discord_ch_id} nie znaleziony – fallback do connections")
                 fallback_ch = client.get_channel(CHANNEL_IDS["connections"])
                 if fallback_ch:
-                    await fallback_ch.send(f"```ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n```")
+                    await fallback_ch.send(f"ansi\n{ansi_color}{msg} ({channel_type} fallback)[0m\n")
             return
         else:
             print(f"[CHAT DEBUG] Regex NIE pasuje – linia trafi do other: {line[:150]}...")
-    
+
     # Nierozpoznane
     detected_events["other"] += 1
     try:

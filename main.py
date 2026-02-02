@@ -1,212 +1,26 @@
-# main.py
-import discord
-from discord.ext import commands, tasks
-import asyncio
-import requests
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import warnings
-import logging
-import time
-from datetime import datetime
-import queue
+# ... (cały początek bez zmian) ...
 
-from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
-from ftp_watcher import DayZLogWatcher
-from log_parser import process_line
-from shared import line_queue  # ← import kolejki z shared.py
-
-# Wyciszenie ostrzeżeń
-warnings.filterwarnings("ignore", category=ResourceWarning)
-warnings.filterwarnings("ignore", message="Unclosed client session")
-warnings.filterwarnings("ignore", message="Unclosed.*ClientSession")
-logging.getLogger("aiohttp").setLevel(logging.ERROR)
-logging.getLogger("asyncio").setLevel(logging.ERROR)
-logging.getLogger("urllib3").setLevel(logging.ERROR)
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.guilds = True
-
-client = commands.Bot(command_prefix="!", intents=intents)
-watcher = DayZLogWatcher()
-
-# ────────────────────────────────────────────────
-# Prosty serwer health-check (na Render)
-# ────────────────────────────────────────────────
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write("Bot Husaria - żyje!".encode('utf-8'))
-
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-
-
-def run_health_server():
-    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
-    print("[HEALTH] Uruchamiam health-check na :10000")
-    server.serve_forever()
-
-
-threading.Thread(target=run_health_server, daemon=True).start()
-
-# ────────────────────────────────────────────────
-# Status BattleMetrics
-# ────────────────────────────────────────────────
-@tasks.loop(seconds=60)
-async def update_status():
-    server_id = BATTLEMETRICS_SERVER_ID
-    
-    print(f"[STATUS DEBUG] Wartość BATTLEMETRICS_SERVER_ID = '{server_id}' (typ: {type(server_id).__name__})")
-    
-    if not server_id or not str(server_id).strip().isdigit():
-        print("[STATUS] Brak poprawnego ID BattleMetrics → ustawiam fallback")
-        try:
-            await client.change_presence(activity=discord.Game("BM ID nie ustawiony"))
-        except Exception as e:
-            print(f"[STATUS FALLBACK ERROR] {e}")
-        return
-
-    url = f"https://api.battlemetrics.com/servers/{server_id}"
-    print(f"[STATUS] Zapytanie do: {url}")
-
-    try:
-        r = requests.get(url, timeout=12)
-        print(f"[STATUS] Status HTTP: {r.status_code}")
-
-        if r.status_code != 200:
-            error_text = r.text[:300].replace('\n', ' ') if r.text else '(brak treści)'
-            print(f"[STATUS ERROR] HTTP {r.status_code} → {error_text}")
-            
-            if r.status_code == 404:
-                await client.change_presence(activity=discord.Game("Serwer nie znaleziony w BM"))
-            elif r.status_code == 429:
-                await client.change_presence(activity=discord.Game("BM rate limit"))
-            else:
-                await client.change_presence(activity=discord.Game(f"BM błąd {r.status_code}"))
-            return
-
-        try:
-            data = r.json()
-            players = data['data']['attributes']['players']
-            max_players = data['data']['attributes']['maxPlayers']
-            status_msg = f"{players}/{max_players} online"
-            print(f"[STATUS SUCCESS] Ustawiam: {status_msg}")
-            await client.change_presence(activity=discord.Game(status_msg))
-        except KeyError as e:
-            print(f"[STATUS JSON ERROR] Brak klucza: {e} – fallback")
-            await client.change_presence(activity=discord.Game("BM dane niekompletne"))
-    except Exception as e:
-        print(f"[STATUS GLOBAL ERROR] {e} – fallback")
-        await client.change_presence(activity=discord.Game("BM błąd połączenia"))
-
-# ────────────────────────────────────────────────
-# Wątek parsujący kolejkę linii
-# ────────────────────────────────────────────────
-def parse_queue_loop():
-    while True:
-        try:
-            line = line_queue.get(timeout=1)
-            if line:
-                print(f"[PARSER QUEUE] Przetwarzam linię: {line[:100]}...")
-                asyncio.run_coroutine_threadsafe(process_line(client, line), client.loop)
-        except queue.Empty:
-            continue
-        except Exception as e:
-            print(f"[PARSE QUEUE ERROR] {e}")
-
-# ────────────────────────────────────────────────
-# on_ready + test kanałów
-# ────────────────────────────────────────────────
-@client.event
-async def on_ready():
-    print(f"\n[BOT] === GOTOWY === {client.user} (ID: {client.user.id})")
-    print(f"[BOT] Serwery: {len(client.guilds)}")
-
-    if client.guilds:
-        guild = client.guilds[0]
-        print(f"[BOT] Główny serwer: {guild.name} ({guild.id})")
-
-    test_ids = {
-        "connections": CHANNEL_IDS.get("connections"),
-        "kills":       CHANNEL_IDS.get("kills"),
-        "damages":     CHANNEL_IDS.get("damages"),
-        "chat":        CHANNEL_IDS.get("chat"),
-    }
-
-    for name, ch_id in test_ids.items():
-        if not ch_id:
-            print(f"[TEST] Brak ID dla kanału: {name}")
-            continue
-
-        ch = client.get_channel(ch_id)
-        if ch:
+async def check_and_parse_new_content():
+    content = watcher.get_new_content()
+    if content:
+        print(f"[DEBUG MAIN] Pobrano {len(content.splitlines())} linii – wysyłam do parsera")
+        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        for line in lines:
             try:
-                await ch.send(f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
-                print(f"[TEST] Wiadomość testowa WYSŁANA na {name}")
+                await process_line(client, line)
             except Exception as e:
-                print(f"[TEST SEND {name}] {e}")
-        else:
-            print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
+                print(f"[PARSER LINE ERROR] {e} → {line[:140]}...")
+    else:
+        print("[DEBUG MAIN] get_new_content() → pusty string, nic do parsowania")
 
-    print("[BOT] Uruchamiam update_status, watcher i parser kolejki...")
-    update_status.start()
-    watcher.run()  # start ciągłego tailingu ADM
-
-    # Start wątku parsującego kolejkę
-    threading.Thread(target=parse_queue_loop, daemon=True).start()
-
-    # Pierwsze sprawdzenie (opcjonalne)
-    # await check_and_parse_new_content()  # możesz zostawić lub usunąć
-
-# ────────────────────────────────────────────────
-# Bezpieczne uruchamianie + czyszczenie sesji
-# ────────────────────────────────────────────────
-async def safe_run_bot():
-    backoff = 5
-    max_backoff = 900  # max 15 minut
+def run_watcher_loop():
+    print("[WATCHER THREAD] Start pętli co 30 sekund")
     while True:
         try:
-            print("[BOT] Próba logowania do Discorda...")
-            await client.start(DISCORD_TOKEN)
-            break
-        except discord.errors.LoginFailure:
-            print("[FATAL] Nieprawidłowy token – wyłączam")
-            return
+            future = asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
+            future.result(timeout=15)
         except Exception as e:
-            print(f"[CRITICAL] {e} – retry za {backoff}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
+            print(f"[WATCHER THREAD ERROR] {e}")
+        time.sleep(30)
 
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(safe_run_bot())
-    except KeyboardInterrupt:
-        print("[MAIN] Wyłączanie (Ctrl+C)")
-    except Exception as e:
-        print(f"[MAIN FATAL] {e}")
-    finally:
-        print("[MAIN] Kończenie – czyszczenie sesji...")
-        try:
-            if hasattr(client, 'http') and client.http.session is not None:
-                print("[MAIN] Zamykam sesję HTTP discord.py...")
-                asyncio.run_coroutine_threadsafe(client.http.session.close(), client.loop)
-        except:
-            pass
-
-        try:
-            loop = asyncio.get_event_loop()
-            if not loop.is_closed():
-                loop.run_until_complete(client.close())
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.run_until_complete(loop.shutdown_default_executor())
-                loop.close()
-        except:
-            pass
+# ... (reszta pliku bez zmian) ...

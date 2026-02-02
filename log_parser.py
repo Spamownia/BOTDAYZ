@@ -28,6 +28,7 @@ async def process_line(bot, line: str):
 
     processed_count += 1
     now = time.time()
+
     if now - last_summary_time >= SUMMARY_INTERVAL:
         summary = f"[PARSER SUMMARY @ {datetime.utcnow().strftime('%H:%M:%S')}] {processed_count} linii | "
         summary += " | ".join(f"{k}: {v}" for k, v in detected_events.items() if v > 0)
@@ -46,7 +47,7 @@ async def process_line(bot, line: str):
 
     # 1. Połączono
     if "is connected" in line and 'Player "' in line:
-        match = re.search(r'Player "(?P<name>[^"]+)"(?:\s*\((?:steamID|id)=(?P<guid>[^)]+)\))?\s+is connected', line)
+        match = re.search(r'Player "(?P<name>[^"]+)"(?:\s*$$   (?:steamID|id)=(?P<guid>[^)]+)   $$)?\s+is connected', line)
         if match:
             detected_events["join"] += 1
             name = match.group("name").strip()
@@ -56,7 +57,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```ansi\n[32m{msg}[0m\n```")
+                await ch.send(f"```ansi
             return
 
     # 2. Rozłączono + Kick/Ban
@@ -109,7 +110,7 @@ async def process_line(bot, line: str):
             if ch:
                 await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
-        match = re.search(r'[COT] (?P<steamid>\d{17,}): (?P<action>.+?)(?: [guid=(?P<guid>[^]]+)])?$', line)
+        match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^]]+)\])?$', line)
         if match:
             detected_events["cot"] += 1
             steamid = match.group("steamid")
@@ -121,7 +122,7 @@ async def process_line(bot, line: str):
                 await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
 
-    # 4. Hit / Kill
+    # 4. Hit / Kill (Twoja oryginalna sekcja – bez zmian w logice)
     if any(x in line for x in ["hit by", "killed by", "CHAR_DEBUG - KILL", "died.", "bled out"]):
         hp_match = re.search(r'[HP: (?P<hp>[\d.]+)]', line)
         hp = float(hp_match.group("hp")) if hp_match else None

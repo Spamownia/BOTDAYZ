@@ -146,7 +146,7 @@ class DayZLogWatcher:
                     self.last_adm = filename
                     self.last_adm_pos = size
 
-                self._save_last_positions()  # zapis po każdej udanej operacji
+                self._save_last_positions()
 
                 return text
 

@@ -105,7 +105,7 @@ async def process_line(bot, line: str):
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
         ch = client.get_channel(CHANNEL_IDS.get("admin", CHANNEL_IDS["connections"]))
-        if ch: await ch.send(f"```ansi\n[35m{msg}[0m```")
+        if ch: await ch.send(f"```ansi\n[37m{msg}[0m```")
         return
 
     # 5. Hits / Obrażenia

@@ -97,7 +97,7 @@ async def process_line(bot, line: str):
             extra = " (BAN)"
         elif is_kick:
             emoji = "⚡"
-            color = "[38;5;208m"
+            color = "[33m"
             extra = " (KICK)"
         else:
             emoji = "🔴"
@@ -120,7 +120,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} ⚡ KICK: {name} (guid={guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
             if ch:
-                await ch.send(f"```ansi\n[38;5;208m{msg}[0m\n```")
+                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
 
         match = re.search(r'\[COT\] (?P<steamid>\d{17,}): (?P<action>.+?)(?: \[guid=(?P<guid>[^\]]+)\])?$', line)
@@ -132,7 +132,7 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} 🛡️ [COT] {steamid} | {action} [guid={guid}]"
             ch = client.get_channel(CHANNEL_IDS["admin"])
             if ch:
-                await ch.send(f"```ansi\n[37m{msg}[0m\n```")
+                await ch.send(f"```ansi\n[33m{msg}[0m\n```")
             return
 
     # 4. Hit / Kill
@@ -251,11 +251,11 @@ async def process_line(bot, line: str):
                         await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
                 elif hp and hp < 20:
                     emoji = "🔥"
-                    color = "[33m"
+                    color = "[35m"
                     extra = f" (HP: {hp:.1f})"
                 else:
                     emoji = "🧟"
-                    color = "[35m"
+                    color = "[33m"
                     extra = f" (HP: {hp:.1f})" if hp else ""
 
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {attacker} w {part}"
@@ -292,11 +292,11 @@ async def process_line(bot, line: str):
                     extra = " (ŚMIERĆ – pojazd)"
                 elif hp < 20:
                     emoji = "🔥"
-                    color = "[33m"
+                    color = "[35m"
                     extra = f" (HP: {hp:.1f})"
                 else:
                     emoji = "🚗"
-                    color = "[36m"
+                    color = "[33m"
                     extra = f" (HP: {hp:.1f})"
 
                 msg = f"{date_str} | {log_time} {emoji} {victim}{extra} → trafiony przez {vehicle} (pojazd)"
@@ -339,11 +339,11 @@ async def process_line(bot, line: str):
                 if kill_ch:
                     await kill_ch.send(f"```ansi\n[31m{kill_msg}[0m\n```")
             elif hp_val < 20:
-                color = "[33m"
+                color = "[35m"
                 emoji = "🔥"
                 extra = f" (HP: {hp_val:.1f})"
             else:
-                color = "[38;5;226m"
+                color = "[33m"
                 emoji = "⚡"
                 extra = f" (HP: {hp_val:.1f})"
 

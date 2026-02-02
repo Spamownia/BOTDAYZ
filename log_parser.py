@@ -1,4 +1,4 @@
-# log_parser.py - poprawiona wersja 2026-02-02
+# log_parser.py - finalna poprawiona wersja
 import re
 from datetime import datetime
 import time
@@ -41,140 +41,113 @@ async def process_line(bot, line: str):
     def dedup_key(action, name=""):
         return (log_time, name.lower(), action)
 
-    # ────────────────────────────────────────────────
-    # 1. Połączenia / Rozłączenia
-    # ────────────────────────────────────────────────
-    if "is connected" in line and 'Player "' in line:
-        m = re.search(r'Player "(?P<name>[^"]+)"\s*\(id=(?P<guid>[^)]+)\)\s+is connected', line)
-        if m:
-            name = m.group("name").strip()
-            guid = m.group("guid")
-            key = dedup_key("connect", name)
-            if key in processed_events: return
-            processed_events.add(key)
-            detected_events["join"] += 1
-            player_login_times[name] = log_dt
-            guid_to_name[guid] = name
-            msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
-            return
+    # 1. Połączenia
+    connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
+    if connect_m:
+        name = connect_m.group(1).strip()
+        guid = connect_m.group(2)
+        key = dedup_key("connect", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["join"] += 1
+        player_login_times[name] = log_dt
+        guid_to_name[guid] = name
+        msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
+        ch = client.get_channel(CHANNEL_IDS["connections"])
+        if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+        return
 
-    if any(x in line.lower() for x in ["disconnected", "kicked", "banned"]) and 'Player "' in line:
-        m = re.search(r'Player "(?P<name>[^"]+)"\s*\(id=(?P<guid>[^)]+)\)', line)
-        if m:
-            name = m.group("name").strip()
-            guid = m.group("guid")
-            key = dedup_key("disconnect", name)
-            if key in processed_events: return
-            processed_events.add(key)
-            detected_events["disconnect"] += 1
-            time_online = "nieznany"
-            if name in player_login_times:
-                delta = (log_dt - player_login_times[name]).total_seconds() // 60
-                time_online = f"{int(delta)} min"
-                del player_login_times[name]
-            emoji = "☠️" if "banned" in line.lower() else "⚡" if "kicked" in line.lower() else "🔴"
-            color  = "[31m" if emoji in "☠️⚡" else "[31m"
-            msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
-            ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
-            return
+    # 2. Rozłączenia
+    disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
+    if disconnect_m:
+        name = disconnect_m.group(1).strip()
+        guid = disconnect_m.group(2)
+        key = dedup_key("disconnect", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["disconnect"] += 1
+        time_online = "nieznany"
+        if name in player_login_times:
+            delta = (log_dt - player_login_times[name]).total_seconds()
+            minutes = int(delta // 60)
+            seconds = int(delta % 60)
+            time_online = f"{minutes} min {seconds} s"
+            del player_login_times[name]
+        emoji = "🔴"
+        color = "[31m"
+        msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
+        ch = client.get_channel(CHANNEL_IDS["connections"])
+        if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+        return
 
-    # ────────────────────────────────────────────────
-    # 2. Chat – poprawiony regex (bez spacji przed id)
-    # ────────────────────────────────────────────────
-    if "[Chat -" in line:
-        m = re.search(r'\[Chat - (?P<ch>[^]]+)\]\("(?P<nick>[^"]+)"\(id=[^)]+\)\): (?P<msg>.*)', line)
-        if m:
-            detected_events["chat"] += 1
-            channel = m.group("ch").strip()
-            nick    = m.group("nick").strip()
-            message = m.group("msg").strip() or "[brak treści]"
-            colors = {"Global":"[34m", "Admin":"[31m", "Team":"[36m", "Direct":"[37m", "Side":"[35m"}
-            col = colors.get(channel, "[33m")
-            msg = f"{date_str} | {log_time} 💬 **{channel}** {nick}: {message}"
-            target_id = CHAT_CHANNEL_MAPPING.get(channel, CHANNEL_IDS["chat"])
-            ch = client.get_channel(target_id)
-            if ch:
-                await ch.send(f"```ansi\n{col}{msg}[0m```")
-            return
+    # 3. Chat
+    chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
+    if chat_m:
+        detected_events["chat"] += 1
+        channel = chat_m.group(1).strip()
+        nick = chat_m.group(2).strip()
+        message = chat_m.group(4).strip() or "[brak]"
+        colors = {"Global": "[34m", "Admin": "[31m", "Team": "[36m", "Direct": "[37m", "Side": "[35m"}
+        col = colors.get(channel, "[33m")
+        msg = f"{date_str} | {log_time} 💬 [{channel}] {nick}: {message}"
+        target_id = CHAT_CHANNEL_MAPPING.get(channel, CHANNEL_IDS["chat"])
+        ch = client.get_channel(target_id)
+        if ch:
+            await ch.send(f"```ansi\n{col}{msg}[0m```")
+        return
 
-    # ────────────────────────────────────────────────
-    # 3. COT – wszystkie linie
-    # ────────────────────────────────────────────────
-    if "[COT]" in line:
+    # 4. COT actions
+    cot_m = re.search(r'\[COT\] (.+)', line)
+    if cot_m:
         detected_events["cot"] += 1
-        content = line.split("[COT] ", 1)[1].strip()
-        msg = f"{date_str} | {log_time} 🔧 **COT** {content}"
+        content = cot_m.group(1).strip()
+        msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
         ch = client.get_channel(CHANNEL_IDS.get("admin", CHANNEL_IDS["connections"]))
         if ch: await ch.send(f"```ansi\n[35m{msg}[0m```")
         return
 
-    # ────────────────────────────────────────────────
-    # 4. Hit by Infected / Zombie
-    # ────────────────────────────────────────────────
-    if "hit by Infected" in line or "hit by Animal" in line:
-        m = re.search(
-            r'Player "(?P<nick>[^"]+)" .*?\[HP: (?P<hp>[\d.]+)\] hit by (?P<source>Infected|Animal|Zombie).*?into (?P<zone>[^(]+)\(\d+\) for (?P<dmg>[\d.]+) damage',
-            line
-        )
-        if m:
-            detected_events["hit"] += 1
-            nick = m.group("nick")
-            hp   = float(m.group("hp"))
-            source = m.group("source")
-            zone = m.group("zone").strip()
-            dmg  = m.group("dmg")
-            emoji = "☠️" if hp <= 0 else "🔥" if hp < 30 else "⚡"
-            color = "[31m" if emoji == "☠️" else "[35m" if emoji == "🔥" else "[33m"
-            extra = " **ŚMIERĆ**" if hp <= 0 else f" (HP: {hp:.1f})"
-            msg = f"{date_str} | {log_time} {emoji} **{nick}** {extra} → trafiony przez {source} w {zone} za {dmg} dmg"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
-            return
+    # 5. Hits / Obrażenia
+    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
+    if hit_m:
+        detected_events["hit"] += 1
+        nick = hit_m.group(1)
+        hp = float(hit_m.group(3))
+        source = hit_m.group(4)
+        part = hit_m.group(5)
+        dmg = hit_m.group(7)
+        ammo = hit_m.group(8)
+        is_dead = hp <= 0
+        emoji = "☠️" if is_dead else "🔥" if hp < 20 else "⚡"
+        color = "[31m" if is_dead else "[35m" if hp < 20 else "[33m"
+        extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
+        msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
+        ch = client.get_channel(CHANNEL_IDS["damages"])
+        if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+        if is_dead:
+            kill_ch = client.get_channel(CHANNEL_IDS["kills"])
+            if kill_ch: await kill_ch.send(f"```ansi\n[31m{date_str} | {log_time} ☠️ {nick} zabity przez {source}[0m```")
+        return
 
-    # ────────────────────────────────────────────────
-    # 5. Explosion / LandMine / unconscious / regained
-    # ────────────────────────────────────────────────
-    if "hit by explosion" in line or "LandMineExplosion" in line:
-        m = re.search(r'Player "(?P<nick>[^"]+)" .*?\[HP: (?P<hp>[\d.]+)\] hit by explosion \((?P<type>[^)]+)\)', line)
-        if m:
-            detected_events["hit"] += 1
-            nick = m.group("nick")
-            hp   = float(m.group("hp"))
-            typ  = m.group("type")
-            emoji = "💥"
-            color = "[31m"
-            extra = " **ŚMIERĆ**" if hp <= 0 else f" (HP: {hp:.1f})"
-            msg = f"{date_str} | {log_time} {emoji} **{nick}** {extra} → eksplozja ({typ})"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
-            return
+    # 6. Nieprzytomność
+    uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
+    if uncon_m:
+        detected_events["unconscious"] += 1
+        nick = uncon_m.group(1)
+        msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
+        ch = client.get_channel(CHANNEL_IDS["damages"])
+        if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
+        return
 
-    if "is unconscious" in line:
-        m = re.search(r'Player "(?P<nick>[^"]+)" .*? is unconscious', line)
-        if m:
-            detected_events["unconscious"] += 1
-            nick = m.group("nick")
-            msg = f"{date_str} | {log_time} 😵 **{nick}** → nieprzytomny"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
-            return
+    regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
+    if regain_m:
+        detected_events["unconscious"] += 1
+        nick = regain_m.group(1)
+        msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
+        ch = client.get_channel(CHANNEL_IDS["damages"])
+        if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+        return
 
-    if "regained consciousness" in line:
-        m = re.search(r'Player "(?P<nick>[^"]+)" .*? regained consciousness', line)
-        if m:
-            detected_events["unconscious"] += 1
-            nick = m.group("nick")
-            msg = f"{date_str} | {log_time} 🟢 **{nick}** → odzyskał przytomność"
-            ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
-            return
-
-    # ────────────────────────────────────────────────
-    # Reszta → unknown
-    # ────────────────────────────────────────────────
+    # Nierozpoznane - zapisz
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

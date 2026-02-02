@@ -143,7 +143,7 @@ async def process_line(bot, line: str):
 
         # Kill – wariant 1 (killed by coś)
         match_kill = re.search(
-            r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>\)\[HP: (?P<hp>[\d.]+)\] killed by (?P<cause>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters ?)?',
+            r'Player "(?P<victim>[^"]+)" \((?:id=[^)]+ pos=<[^>]+>)?\)\[HP: (?P<hp>[\d.]+)\] killed by (?P<cause>[^ ]+)(?: with (?P<weapon>[^ ]+) from (?P<dist>[\d.]+) meters ?)?',
             line
         )
         if match_kill:

@@ -1,8 +1,10 @@
-# log_parser.py - finalna poprawiona wersja
+# log_parser.py - finalna poprawiona wersja z importami
 import re
 from datetime import datetime
 import time
 from collections import defaultdict
+from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
+# Usuń from utils jeśli nie używasz embedów, bo w tej wersji używam ansi text
 
 last_death_time = defaultdict(float)
 player_login_times = {}

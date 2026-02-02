@@ -149,6 +149,21 @@ async def process_line(bot, line: str):
         if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
         return
 
+    # 7. Śmierć z rozróżnieniem powodu (nowe)
+    death_m = re.search(r'Player "(.+?)" \(DEAD\) \s*\(id=(.+?)\s*pos=<.+?>\) died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
+    if death_m:
+        detected_events["kill"] += 1
+        nick = death_m.group(1)
+        water = death_m.group(3)
+        energy = death_m.group(4)
+        bleed = death_m.group(5)
+        # Powód: zakładamy ostatni hit, ale jeśli brak, ogólny
+        reason = "nieznana przyczyna"  # Można rozszerzyć logiką na podstawie poprzednich linii, ale na razie ogólny
+        msg = f"{date_str} | {log_time} ☠️ {nick} zmarł ({reason}). Stats: Water {water}, Energy {energy}, Bleed {bleed}"
+        ch = client.get_channel(CHANNEL_IDS["kills"])
+        if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
+        return
+
     # Nierozpoznane - zapisz
     detected_events["other"] += 1
     try:

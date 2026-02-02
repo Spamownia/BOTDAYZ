@@ -1,4 +1,4 @@
-# log_parser.py - finalna poprawiona wersja z importami
+# log_parser.py - finalna poprawiona wersja z importami + śmierć z przyczyną
 import re
 from datetime import datetime
 import time
@@ -9,6 +9,8 @@ from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
+last_hit_source = {}  # nick.lower() -> ostatni source trafienia (dodane do rozpoznawania przyczyny śmierci)
+
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
@@ -105,7 +107,7 @@ async def process_line(bot, line: str):
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
         ch = client.get_channel(CHANNEL_IDS.get("admin", CHANNEL_IDS["connections"]))
-        if ch: await ch.send(f"```ansi\n[37m{msg}[0m```")
+        if ch: await ch.send(f"```ansi\n[35m{msg}[0m```")
         return
 
     # 5. Hits / Obrażenia
@@ -118,6 +120,10 @@ async def process_line(bot, line: str):
         part = hit_m.group(5)
         dmg = hit_m.group(7)
         ammo = hit_m.group(8)
+
+        # Zapisz ostatnie źródło obrażeń dla gracza (pomaga przy śmierci)
+        last_hit_source[nick.lower()] = source
+
         is_dead = hp <= 0
         emoji = "☠️" if is_dead else "🔥" if hp < 20 else "⚡"
         color = "[31m" if is_dead else "[35m" if hp < 20 else "[33m"
@@ -149,19 +155,51 @@ async def process_line(bot, line: str):
         if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu (nowe)
-    death_m = re.search(r'Player "(.+?)" \(DEAD\) \s*\(id=(.+?)\s*pos=<.+?>\) died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
+    # 7. Śmierć z rozróżnieniem powodu (dodane)
+    death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         detected_events["kill"] += 1
-        nick = death_m.group(1)
-        water = death_m.group(3)
-        energy = death_m.group(4)
-        bleed = death_m.group(5)
-        # Powód: zakładamy ostatni hit, ale jeśli brak, ogólny
-        reason = "nieznana przyczyna"  # Można rozszerzyć logiką na podstawie poprzednich linii, ale na razie ogólny
-        msg = f"{date_str} | {log_time} ☠️ {nick} zmarł ({reason}). Stats: Water {water}, Energy {energy}, Bleed {bleed}"
+        nick = death_m.group(1).strip()
+        water = float(death_m.group(2))
+        energy = float(death_m.group(3))
+        bleed = int(death_m.group(4))
+
+        # Określ prawdopodobną przyczynę
+        lower_nick = nick.lower()
+        reason = "nieznana przyczyna"
+        emoji_reason = "☠️"
+
+        if lower_nick in last_hit_source:
+            last_source = last_hit_source[lower_nick]
+            if "Infected" in last_source or "Zombie" in last_source:
+                reason = "zainfekowany / zombie"
+                emoji_reason = "🧟"
+            elif "explosion" in last_source.lower() or "LandMine" in last_source:
+                reason = "eksplozja / mina"
+                emoji_reason = "💥"
+            elif "Player" in last_source:
+                reason = "zabity przez gracza"
+                emoji_reason = "🔫"
+            elif "Fall" in last_source or "FallDamage" in last_source:
+                reason = "upadek z wysokości"
+                emoji_reason = "🪂"
+            elif bleed > 0 and water < 100 and energy < 200:
+                reason = "wykrwawienie / wyczerpanie"
+                emoji_reason = "🩸"
+            else:
+                reason = f"ostatni hit: {last_source}"
+
+        msg = f"{date_str} | {log_time} {emoji_reason} **{nick} zmarł** ({reason})\n" \
+              f"   Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
+
         ch = client.get_channel(CHANNEL_IDS["kills"])
-        if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
+        if ch:
+            await ch.send(f"```ansi\n[31m{msg}[0m```")
+
+        # Wyczyść po wysłaniu (zapobiega błędom przy duplikatach)
+        if lower_nick in last_hit_source:
+            del last_hit_source[lower_nick]
+
         return
 
     # Nierozpoznane - zapisz

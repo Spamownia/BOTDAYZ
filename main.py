@@ -9,11 +9,15 @@ import warnings
 import logging
 import time
 from datetime import datetime
+import queue  # ← DODANE
 
 # Importy z Twoich plików
-from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID, CHECK_INTERVAL
+from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
+
+# Kolejka do przesyłania linii z watchera do parsera
+line_queue = queue.Queue()
 
 # Wyciszenie ostrzeżeń
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -91,51 +95,34 @@ async def update_status():
                 await client.change_presence(activity=discord.Game(f"BM błąd {r.status_code}"))
             return
 
-        data = r.json()
-        attrs = data.get("data", {}).get("attributes", {})
-        
-        players = attrs.get("players", "?")
-        max_players = attrs.get("maxPlayers", "?")
-        
-        status_text = f"{players}/{max_players} online"
-        print(f"[STATUS SUCCESS] Ustawiam: {status_text}")
-
-        await client.change_presence(activity=discord.Game(status_text))
-
-    except Exception as e:
-        print(f"[STATUS EXCEPTION] {e}")
-        await client.change_presence(activity=discord.Game("BM error"))
-
-# ────────────────────────────────────────────────
-# Sprawdzanie logów
-# ────────────────────────────────────────────────
-async def check_and_parse_new_content():
-    content = watcher.get_new_content()
-    if not content:
-        print("[CHECK] Brak nowych danych z FTP")
-        return
-
-    lines = [l.strip() for l in content.splitlines() if l.strip()]
-    print(f"[DEBUG LINES] Przetwarzam {len(lines)} linii (pierwsze 5): {lines[:5]}...")
-    print(f"[CHECK] Przetwarzam {len(lines)} linii ({datetime.utcnow().strftime('%H:%M:%S')})")
-
-    for line in lines:
         try:
-            await process_line(client, line)
-        except Exception as line_err:
-            print(f"[LINE PROCESS ERROR] {line_err} → {line[:140]}...")
+            data = r.json()
+            players = data['data']['attributes']['players']
+            max_players = data['data']['attributes']['maxPlayers']
+            status_msg = f"{players}/{max_players} online"
+            print(f"[STATUS SUCCESS] Ustawiam: {status_msg}")
+            await client.change_presence(activity=discord.Game(status_msg))
+        except KeyError as e:
+            print(f"[STATUS JSON ERROR] Brak klucza: {e} – fallback")
+            await client.change_presence(activity=discord.Game("BM dane niekompletne"))
+    except Exception as e:
+        print(f"[STATUS GLOBAL ERROR] {e} – fallback")
+        await client.change_presence(activity=discord.Game("BM błąd połączenia"))
 
-
-def run_watcher_loop():
-    print(f"[WATCHER THREAD] Start pętli co ~{CHECK_INTERVAL} sekund")
+# ────────────────────────────────────────────────
+# Wątek parsujący kolejkę linii
+# ────────────────────────────────────────────────
+def parse_queue_loop():
     while True:
         try:
-            future = asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
-            future.result(timeout=15)
+            line = line_queue.get(timeout=1)
+            if line:
+                print(f"[PARSER QUEUE] Przetwarzam linię: {line[:100]}...")
+                asyncio.run_coroutine_threadsafe(process_line(client, line), client.loop)
+        except queue.Empty:
+            continue
         except Exception as e:
-            print(f"[WATCHER THREAD ERROR] {e}")
-        time.sleep(CHECK_INTERVAL)
-
+            print(f"[PARSE QUEUE ERROR] {e}")
 
 # ────────────────────────────────────────────────
 # on_ready + test kanałów
@@ -151,9 +138,9 @@ async def on_ready():
 
     test_ids = {
         "connections": CHANNEL_IDS.get("connections"),
-        "kills": CHANNEL_IDS.get("kills"),
-        "damages": CHANNEL_IDS.get("damages"),
-        "chat": CHANNEL_IDS.get("chat"),
+        "kills":       CHANNEL_IDS.get("kills"),
+        "damages":     CHANNEL_IDS.get("damages"),
+        "chat":        CHANNEL_IDS.get("chat"),
     }
 
     for name, ch_id in test_ids.items():
@@ -171,10 +158,14 @@ async def on_ready():
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 
-    print("[BOT] Uruchamiam update_status i watcher...")
+    print("[BOT] Uruchamiam update_status, watcher i parser kolejki...")
     update_status.start()
-    threading.Thread(target=run_watcher_loop, daemon=True).start()
+    watcher.run()  # start ciągłego tailingu ADM
 
+    # Start wątku parsującego kolejkę
+    threading.Thread(target=parse_queue_loop, daemon=True).start()
+
+    # Pierwsze sprawdzenie (opcjonalne)
     await check_and_parse_new_content()
 
 

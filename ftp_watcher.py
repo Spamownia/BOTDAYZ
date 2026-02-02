@@ -5,7 +5,7 @@ import json
 import os
 import threading
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-from main import line_queue  # import kolejki z main.py
+from shared import line_queue  # ← import z shared.py
 
 LAST_POSITIONS_FILE = 'last_positions.json'
 
@@ -77,7 +77,6 @@ class DayZLogWatcher:
             adm_files = [f for f in files if f.endswith('.ADM') and 'DayZServer_x64' in f]
             if not adm_files:
                 return None
-            # Najnowszy plik według nazwy (data i godzina w nazwie)
             latest = max(adm_files, key=lambda f: f.split('_')[2:4])
             return latest
         except Exception as e:
@@ -115,7 +114,7 @@ class DayZLogWatcher:
                 preview = text[:200].replace('\n', ' | ')
                 print(f"[FTP WATCHER PREVIEW ADM] {preview}...")
 
-            # Wrzucamy linie do kolejki do parsowania
+            # Wrzucamy linie do kolejki
             for ln in text.splitlines():
                 if ln.strip():
                     line_queue.put(ln)
@@ -143,6 +142,6 @@ class DayZLogWatcher:
                     self.get_new_adm_content()
                 except Exception as e:
                     print(f"[FTP WATCHER LOOP ERROR] {e}")
-                time.sleep(5)  # real-time co 5 sekund
+                time.sleep(5)
 
         threading.Thread(target=loop, daemon=True).start()

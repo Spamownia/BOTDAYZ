@@ -1,4 +1,4 @@
-# log_parser.py - finalna wersja z filtrem anty-duplikat (po czasie logu)
+# log_parser.py - poprawiona wersja: anty-duplikaty po hashu + bezpieczne wysyłanie
 import re
 from datetime import datetime
 import time
@@ -10,25 +10,35 @@ player_login_times = {}
 guid_to_name = {}
 last_hit_source = {}  # nick.lower() -> ostatni source trafienia
 
-# NOWOŚĆ: globalny timestamp ostatniej przetworzonej linii (HH:MM:SS)
-last_processed_time = "00:00:00"  # startowo najwcześniejsza możliwa godzina
-
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0}
 
-processed_events = set()  # deduplikacja po (czas, nick, akcja)
+processed_events = set()           # deduplikacja po (czas, nick, akcja)
+processed_lines_hash = set()       # globalny cache – hash linii, które już wysłano
+MAX_HASH_CACHE = 5000              # limit pamięci – po osiągnięciu czyścimy najstarsze
 
 async def process_line(bot, line: str):
-    global last_summary_time, processed_count, last_processed_time
+    global last_summary_time, processed_count
 
     try:
         client = bot
         line = line.strip()
         if not line:
             return
+
+        # === PROSTA DEDUPLIKACJA PO HASHU LINII ===
+        line_hash = hash(line)
+        if line_hash in processed_lines_hash:
+            return  # linia już była wysłana wcześniej
+
+        processed_lines_hash.add(line_hash)
+
+        # Ograniczanie rozmiaru cache (żeby nie rosło w nieskończoność)
+        if len(processed_lines_hash) > MAX_HASH_CACHE:
+            processed_lines_hash.pop()  # usuwa najstarszy (FIFO)
 
         processed_count += 1
         now = time.time()
@@ -43,14 +53,6 @@ async def process_line(bot, line: str):
 
         time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
         log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
-
-        # === FILTR ANTY-DUPLIKAT ===
-        # Pomijamy linie starsze lub równe ostatniej przetworzonej
-        if log_time <= last_processed_time:
-            return
-
-        # Aktualizujemy ostatni przetworzony czas
-        last_processed_time = log_time
 
         today = datetime.utcnow()
         date_str = today.strftime("%d.%m.%Y")
@@ -72,10 +74,14 @@ async def process_line(bot, line: str):
             guid_to_name[guid] = name
             msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
             ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+            if ch:
+                try:
+                    await ch.send(f"```ansi\n[32m{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR connections] {send_err}")
             return
 
-        # 2. Rozłączenia
+        # 2. Rozłączenia (obsługuje też Unknown id)
         disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
         if disconnect_m:
             name = disconnect_m.group(1).strip()
@@ -95,7 +101,11 @@ async def process_line(bot, line: str):
             color = "[31m"
             msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
             ch = client.get_channel(CHANNEL_IDS["connections"])
-            if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+            if ch:
+                try:
+                    await ch.send(f"```ansi\n{color}{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR connections] {send_err}")
             return
 
         # 3. Chat
@@ -111,7 +121,10 @@ async def process_line(bot, line: str):
             target_id = CHAT_CHANNEL_MAPPING.get(channel, CHANNEL_IDS["chat"])
             ch = client.get_channel(target_id)
             if ch:
-                await ch.send(f"```ansi\n{col}{msg}[0m```")
+                try:
+                    await ch.send(f"```ansi\n{col}{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR chat] {send_err}")
             return
 
         # 4. COT actions
@@ -122,7 +135,10 @@ async def process_line(bot, line: str):
             msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
             ch = client.get_channel(CHANNEL_IDS.get("admin", CHANNEL_IDS["connections"]))
             if ch:
-                await ch.send(f"```ansi\n[35m{msg}[0m```")
+                try:
+                    await ch.send(f"```ansi\n[35m{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR admin] {send_err}")
             return
 
         # 5. Hits / Obrażenia
@@ -136,7 +152,6 @@ async def process_line(bot, line: str):
             dmg = hit_m.group(7)
             ammo = hit_m.group(8)
 
-            # Zapisz ostatnie źródło obrażeń dla gracza (pomaga przy śmierci)
             last_hit_source[nick.lower()] = source
 
             is_dead = hp <= 0
@@ -145,10 +160,18 @@ async def process_line(bot, line: str):
             extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
             msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
             ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+            if ch:
+                try:
+                    await ch.send(f"```ansi\n{color}{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR damages] {send_err}")
             if is_dead:
                 kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-                if kill_ch: await kill_ch.send(f"```ansi\n[31m{date_str} | {log_time} ☠️ {nick} zabity przez {source}[0m```")
+                if kill_ch:
+                    try:
+                        await kill_ch.send(f"```ansi\n[31m{date_str} | {log_time} ☠️ {nick} zabity przez {source}[0m```")
+                    except Exception as send_err:
+                        print(f"[SEND ERROR kills] {send_err}")
             return
 
         # 6. Nieprzytomność
@@ -158,7 +181,11 @@ async def process_line(bot, line: str):
             nick = uncon_m.group(1)
             msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
             ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
+            if ch:
+                try:
+                    await ch.send(f"```ansi\n[31m{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR damages] {send_err}")
             return
 
         regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
@@ -167,7 +194,11 @@ async def process_line(bot, line: str):
             nick = regain_m.group(1)
             msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
             ch = client.get_channel(CHANNEL_IDS["damages"])
-            if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+            if ch:
+                try:
+                    await ch.send(f"```ansi\n[32m{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR damages] {send_err}")
             return
 
         # 7. Śmierć z rozróżnieniem powodu
@@ -208,20 +239,23 @@ async def process_line(bot, line: str):
 
             ch = client.get_channel(CHANNEL_IDS["kills"])
             if ch:
-                await ch.send(f"```ansi\n[31m{msg}[0m```")
+                try:
+                    await ch.send(f"```ansi\n[31m{msg}[0m```")
+                except Exception as send_err:
+                    print(f"[SEND ERROR kills] {send_err}")
 
             if lower_nick in last_hit_source:
                 del last_hit_source[lower_nick]
 
             return
 
-        # Nierozpoznane - zapisz
+        # Nierozpoznane - zapisz do pliku
         detected_events["other"] += 1
         try:
             with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
                 f.write(f"{datetime.utcnow().isoformat()} | {line}\n")
-        except:
-            pass
+        except Exception as e:
+            print(f"[UNPARSED WRITE ERROR] {e}")
 
     except Exception as e:
-        print(f"[PROCESS LINE ERROR] {e} → {line}")
+        print(f"[PROCESS LINE CRITICAL ERROR] {e} → {line[:150]}...")

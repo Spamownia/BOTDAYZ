@@ -1,19 +1,20 @@
-# log_parser.py - finalna poprawiona wersja z importami + śmierć z przyczyną
+# log_parser.py - połączona i ujednolicona wersja z importami + śmierć z przyczyną + debug
 import re
 from datetime import datetime
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
+
 last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
-last_hit_source = {} # nick.lower() -> ostatni source trafienia
+last_hit_source = {}  # nick.lower() -> ostatni source trafienia
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0}
-processed_events = set() # deduplikacja
+processed_events = set()  # deduplikacja
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
@@ -21,7 +22,9 @@ async def process_line(bot, line: str):
     line = line.strip()
     if not line:
         return
+
     print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
+
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
@@ -31,13 +34,16 @@ async def process_line(bot, line: str):
         last_summary_time = now
         processed_count = 0
         for k in detected_events: detected_events[k] = 0
+
     time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
     log_dt = datetime.combine(today.date(), datetime.strptime(log_time, "%H:%M:%S").time())
+
     def dedup_key(action, name=""):
         return (log_time, name.lower(), action)
+
     async def safe_send(channel_key, message, color_code):
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:
@@ -52,6 +58,7 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color_code}{message}[0m```")
         except Exception as e:
             print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
+
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
@@ -64,8 +71,9 @@ async def process_line(bot, line: str):
         player_login_times[name] = log_dt
         guid_to_name[guid] = name
         msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
-        safe_send("connections", msg, "[32m")
+        await safe_send("connections", msg, "[32m")
         return
+
     # 2. Rozłączenia
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
@@ -85,8 +93,9 @@ async def process_line(bot, line: str):
         emoji = "🔴"
         color = "[31m"
         msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
-        safe_send("connections", msg, color)
+        await safe_send("connections", msg, color)
         return
+
     # 3. Chat
     chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
@@ -105,14 +114,16 @@ async def process_line(bot, line: str):
         else:
             print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
+
     # 4. COT actions
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        safe_send("admin", msg, "[35m") # używa admin lub fallback na connections
+        await safe_send("admin", msg, "[35m")
         return
+
     # 5. Hits / Obrażenia
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
@@ -129,26 +140,29 @@ async def process_line(bot, line: str):
         color = "[31m" if is_dead else "[35m" if hp < 20 else "[33m"
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
-        safe_send("damages", msg, color)
+        await safe_send("damages", msg, color)
         if is_dead:
             kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
-            safe_send("kills", kill_msg, "[31m")
+            await safe_send("kills", kill_msg, "[31m")
         return
+
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
         detected_events["unconscious"] += 1
         nick = uncon_m.group(1)
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
-        safe_send("damages", msg, "[31m")
+        await safe_send("damages", msg, "[31m")
         return
+
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
     if regain_m:
         detected_events["unconscious"] += 1
         nick = regain_m.group(1)
         msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
-        safe_send("damages", msg, "[32m")
+        await safe_send("damages", msg, "[32m")
         return
+
     # 7. Śmierć z rozróżnieniem powodu
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
@@ -181,10 +195,11 @@ async def process_line(bot, line: str):
                 reason = f"ostatni hit: {last_source}"
         msg = f"{date_str} | {log_time} {emoji_reason} **{nick} zmarł** ({reason})\n" \
               f" Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
-        safe_send("kills", msg, "[31m")
+        await safe_send("kills", msg, "[31m")
         if lower_nick in last_hit_source:
             del last_hit_source[lower_nick]
         return
+
     # Nierozpoznane - zapisz
     detected_events["other"] += 1
     try:

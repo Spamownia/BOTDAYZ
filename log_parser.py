@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci (dokładnie wg Twojego formatu)
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI
 import re
 from datetime import datetime
 import time
@@ -13,7 +13,7 @@ UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
-detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0}
+detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0, "queue":0}
 processed_events = set()  # deduplikacja
 
 async def process_line(bot, line: str):
@@ -74,6 +74,20 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
+    # NOWA SEKCA: DOŁĄCZENIE DO KOLEJKI
+    queue_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*(?:is queued|queued).*?(?:Position|Queue position):?\s*(\d+)(?:/\d+)?', line, re.IGNORECASE)
+    if queue_m:
+        name = queue_m.group(1).strip()
+        guid = queue_m.group(2)
+        position = queue_m.group(3)
+        key = dedup_key("queue", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["queue"] += 1
+        msg = f"{date_str} | {log_time} 🟡 {name} dołączył do kolejki (pozycja: {position})"
+        await safe_send("connections", msg, "[33m")  # żółty kolor, kanał connections
+        return
+
     # 2. Rozłączenia
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
@@ -124,7 +138,7 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, "[35m")
         return
 
-    # 5. Hits / Obrażenia – DODANY PODZIAŁ NA HP < 20
+    # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -168,8 +182,7 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI (najpierw dystans, potem stats/przyczyna)
-    # Najpierw zabójstwo dystansowe
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
@@ -186,10 +199,9 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
-        death_handled = True  # flaga - śmierć już obsłużona przez kill dystansowy
+        death_handled = True
         return
 
-    # Potem śmierć z statsami / przyczyną - tylko jeśli nie było kill dystansowego
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m and not death_handled:
         nick = death_m.group(1).strip()

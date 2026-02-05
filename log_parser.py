@@ -74,19 +74,6 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # NOWA SEKCA: DOŁĄCZENIE DO KOLEJKI
-    queue_m = re.search(r'Player "(.+?)"(?:\s*\(id=(.+?)\))?\s*(?:is queued|queued|queue position).*?(?:Position|Queue position|pozycja)?:?\s*(\d+)(?:/\d+)?', line, re.IGNORECASE)
-    if queue_m:
-        name = queue_m.group(1).strip()
-        position = queue_m.group(3)
-        key = dedup_key("queue", name)
-        if key in processed_events: return
-        processed_events.add(key)
-        detected_events["queue"] += 1
-        msg = f"{date_str} | {log_time} 🟡 {name} dołączył do kolejki (pozycja: {position})"
-        await safe_send("connections", msg, "[33m")  # żółty kolor, kanał connections
-        return
-
     # 2. Rozłączenia
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:

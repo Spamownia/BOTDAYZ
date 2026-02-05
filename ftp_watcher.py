@@ -4,19 +4,20 @@ import time
 import json
 import os
 import threading
+from datetime import datetime
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
 
 LAST_POSITIONS_FILE = 'last_positions.json'
-ADM_FILENAME = "DayZServer_x64_2026-02-02_18-00-33.ADM"  # ← zmień na aktualną nazwę!
 
 class DayZLogWatcher:
     def __init__(self):
         self.ftp = None
+        self.last_adm_filename = None
         self.last_adm_pos = 0
         self.last_adm_mtime = 0
         self.last_adm_size = 0
         self._load_last_positions()
-        print(f"[FTP WATCHER] Start – monitoruję TYLKO: {ADM_FILENAME}")
+        print("[FTP WATCHER] Start – monitoruję najnowszy plik ADM w katalogu")
         self.running = False
 
     def _load_last_positions(self):
@@ -24,10 +25,14 @@ class DayZLogWatcher:
             try:
                 with open(LAST_POSITIONS_FILE, 'r') as f:
                     data = json.load(f)
-                    self.last_adm_pos  = int(data.get('last_adm_pos',  0))
+                    self.last_adm_filename = data.get('last_adm_filename')
+                    self.last_adm_pos = int(data.get('last_adm_pos', 0))
                     self.last_adm_mtime = int(data.get('last_adm_mtime', 0))
                     self.last_adm_size = int(data.get('last_adm_size', 0))
-                print(f"[FTP] Wczytano stan ADM: pos={self.last_adm_pos:,}  size={self.last_adm_size:,}  mtime={self.last_adm_mtime}")
+                if self.last_adm_filename:
+                    print(f"[FTP] Wczytano stan ostatniego ADM: {self.last_adm_filename} pos={self.last_adm_pos:,} size={self.last_adm_size:,} mtime={self.last_adm_mtime}")
+                else:
+                    print("[FTP] Brak poprzedniego pliku ADM – start od zera")
             except Exception as e:
                 print(f"[FTP] Błąd wczytywania last_positions: {e} → start od zera")
         else:
@@ -35,14 +40,15 @@ class DayZLogWatcher:
 
     def _save_last_positions(self):
         data = {
-            'last_adm_pos':   self.last_adm_pos,
+            'last_adm_filename': self.last_adm_filename,
+            'last_adm_pos': self.last_adm_pos,
             'last_adm_mtime': self.last_adm_mtime,
-            'last_adm_size':  self.last_adm_size,
+            'last_adm_size': self.last_adm_size,
         }
         try:
             with open(LAST_POSITIONS_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
-            # print(f"[FTP] Zapisano stan: pos={self.last_adm_pos:,}")
+            # print(f"[FTP] Zapisano stan: {self.last_adm_filename} pos={self.last_adm_pos:,}")
         except Exception as e:
             print(f"[FTP] Błąd zapisu pozycji: {e}")
 
@@ -70,29 +76,60 @@ class DayZLogWatcher:
         try:
             resp = self.ftp.sendcmd(f'MDTM {filename}')
             if resp.startswith('213 '):
-                ts = time.strptime(resp[4:].strip(), '%Y%m%d%H%M%S')
-                return int(time.mktime(ts))
-        except:
-            pass
+                ts_str = resp[4:].strip()
+                ts = datetime.strptime(ts_str, '%Y%m%d%H%M%S')
+                return int(ts.timestamp())
+        except Exception as e:
+            print(f"[FTP MTIME ERROR] Dla {filename}: {e}")
         return 0
+
+    def _find_latest_adm(self):
+        """Znajduje najnowszy plik .ADM w katalogu na podstawie nazwy (data w nazwie)"""
+        try:
+            files = self.ftp.nlst()
+            adm_files = [f for f in files if f.startswith('DayZServer_x64_') and f.endswith('.ADM')]
+            if not adm_files:
+                print("[FTP] Brak plików ADM w katalogu!")
+                return None
+
+            # Parsujemy daty z nazw plików: DayZServer_x64_YYYY-MM-DD_HH-MM-SS.ADM
+            def parse_date(filename):
+                try:
+                    date_str = filename[15:-4]  # YYYY-MM-DD_HH-MM-SS
+                    return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
+                except:
+                    return datetime.min
+
+            adm_files_sorted = sorted(adm_files, key=parse_date, reverse=True)
+            latest = adm_files_sorted[0]
+            print(f"[FTP] Najnowszy ADM: {latest}")
+            return latest
+        except Exception as e:
+            print(f"[FTP FIND ADM ERROR]: {e}")
+            return None
 
     def _get_adm_content(self):
         if not self._connect():
             return ""
 
-        filename = ADM_FILENAME
+        filename = self._find_latest_adm()
+        if not filename:
+            return ""
 
         try:
             current_size = self.ftp.size(filename)
             current_mtime = self._get_mtime(filename)
 
-            # Wykrywanie rotacji pliku (nowy plik = mniejszy rozmiar lub nowszy mtime)
-            if current_size < self.last_adm_size or current_mtime > self.last_adm_mtime:
-                print(f"[FTP] Wykryto ROTACJĘ ADM! (size: {self.last_adm_size:,} → {current_size:,} | mtime zmienił się)")
+            # Jeśli to nowy plik (inna nazwa lub nowszy mtime / mniejszy rozmiar)
+            if filename != self.last_adm_filename or current_size < self.last_adm_size or current_mtime > self.last_adm_mtime:
+                print(f"[FTP] Nowy / zrotowany ADM! {self.last_adm_filename} → {filename} (size: {self.last_adm_size:,} → {current_size:,} | mtime: {self.last_adm_mtime} → {current_mtime})")
+                self.last_adm_filename = filename
                 self.last_adm_pos = 0
+                self.last_adm_size = current_size
+                self.last_adm_mtime = current_mtime
 
             if self.last_adm_pos >= current_size:
-                # print(f"[FTP] Brak nowych danych ({self.last_adm_pos:,} / {current_size:,})")
+                # print(f"[FTP] Brak nowych danych w {filename} ({self.last_adm_pos:,} / {current_size:,})")
                 return ""
 
             start_pos = self.last_adm_pos
@@ -101,7 +138,7 @@ class DayZLogWatcher:
             def callback(block):
                 data.append(block)
 
-            print(f"[FTP] Pobieram ADM od {start_pos:,} bajtów (plik ma {current_size:,})")
+            print(f"[FTP] Pobieram {filename} od {start_pos:,} bajtów (plik ma {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
 
             content_bytes = b''.join(data)
@@ -111,12 +148,12 @@ class DayZLogWatcher:
             content = content_bytes.decode('utf-8', errors='replace')
 
             # Aktualizacja stanu – ZAWSZE po udanym odczycie
-            self.last_adm_pos   = start_pos + len(content_bytes)
-            self.last_adm_size  = current_size
+            self.last_adm_pos = start_pos + len(content_bytes)
+            self.last_adm_size = current_size
             self.last_adm_mtime = current_mtime
 
             lines_count = len(content.splitlines())
-            print(f"[FTP] Pobrano {lines_count} nowych linii ADM (od {start_pos:,})")
+            print(f"[FTP] Pobrano {lines_count} nowych linii z {filename} (od {start_pos:,})")
 
             # Podgląd pierwszych ~300 znaków (opcjonalnie)
             if content:
@@ -126,7 +163,7 @@ class DayZLogWatcher:
             return content
 
         except Exception as e:
-            print(f"[FTP ERROR ADM] {type(e).__name__}: {e}")
+            print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
 
     def get_new_content(self):
@@ -140,7 +177,7 @@ class DayZLogWatcher:
             print("[FTP] Watcher już działa")
             return
         self.running = True
-        print("[FTP] Start monitorowania ADM co 25–35 sekund")
+        print("[FTP] Start monitorowania najnowszego ADM co 25–35 sekund")
 
         def loop():
             while self.running:
@@ -148,7 +185,7 @@ class DayZLogWatcher:
                     content = self.get_new_content()
                     if content:
                         print(f"[FTP] Nowe dane ADM – {len(content.splitlines())} linii")
-                        # Tutaj możesz dodać np. przetwarzanie linii, wysyłanie na Discord itp.
+                        # Tutaj dodaj przetwarzanie content, np. parsowanie linii, wysyłanie na Discord
                 except Exception as e:
                     print(f"[FTP LOOP ERROR] {e}")
                 time.sleep(28 + (time.time() % 7))  # lekkie rozproszenie 25–35 s

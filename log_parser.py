@@ -121,7 +121,7 @@ async def process_line(bot, line: str):
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        await safe_send("admin", msg, "[35m")
+        await safe_send("admin", msg, "[37m")
         return
 
     # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
@@ -139,7 +139,7 @@ async def process_line(bot, line: str):
         # PODZIAŁ: jeśli HP poniżej 20 → czerwony kolor i czaszka
         if hp < 20:
             emoji = "☠️"
-            color = "[31m"  # czerwony
+            color = "[35m"  # czerwony
         else:
             emoji = "⚡"
             color = "[33m"  # żółty/zwykły
@@ -157,7 +157,7 @@ async def process_line(bot, line: str):
         detected_events["unconscious"] += 1
         nick = uncon_m.group(1)
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
-        await safe_send("damages", msg, "[31m")
+        await safe_send("damages", msg, "[33m")
         return
 
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)

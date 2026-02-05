@@ -4,20 +4,17 @@ from datetime import datetime
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-# Usuń from utils jeśli nie używasz embedów, bo w tej wersji używam ansi text
 
 last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
-last_hit_source = {}  # nick.lower() -> ostatni source trafienia (dodane do rozpoznawania przyczyny śmierci)
-
+last_hit_source = {} # nick.lower() -> ostatni source trafienia
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0}
-
-processed_events = set()  # deduplikacja
+processed_events = set() # deduplikacja
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
@@ -25,6 +22,8 @@ async def process_line(bot, line: str):
     line = line.strip()
     if not line:
         return
+
+    print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
 
     processed_count += 1
     now = time.time()
@@ -45,6 +44,21 @@ async def process_line(bot, line: str):
     def dedup_key(action, name=""):
         return (log_time, name.lower(), action)
 
+    def safe_send(channel_key, message, color_code):
+        ch_id = CHANNEL_IDS.get(channel_key)
+        if not ch_id:
+            print(f"[DISCORD ERROR] Brak klucza '{channel_key}' w CHANNEL_IDS")
+            return
+        ch = client.get_channel(ch_id)
+        if not ch:
+            print(f"[DISCORD ERROR] Kanał '{channel_key}' (ID: {ch_id}) nie znaleziony!")
+            return
+        print(f"[DISCORD → {channel_key}] Wysyłam: {message[:80]}{'...' if len(message)>80 else ''}")
+        try:
+            await ch.send(f"```ansi\n{color_code}{message}[0m```")
+        except Exception as e:
+            print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
+
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
@@ -57,8 +71,7 @@ async def process_line(bot, line: str):
         player_login_times[name] = log_dt
         guid_to_name[guid] = name
         msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
-        ch = client.get_channel(CHANNEL_IDS["connections"])
-        if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+        safe_send("connections", msg, "[32m")
         return
 
     # 2. Rozłączenia
@@ -80,8 +93,7 @@ async def process_line(bot, line: str):
         emoji = "🔴"
         color = "[31m"
         msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
-        ch = client.get_channel(CHANNEL_IDS["connections"])
-        if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+        safe_send("connections", msg, color)
         return
 
     # 3. Chat
@@ -97,7 +109,10 @@ async def process_line(bot, line: str):
         target_id = CHAT_CHANNEL_MAPPING.get(channel, CHANNEL_IDS["chat"])
         ch = client.get_channel(target_id)
         if ch:
+            print(f"[DISCORD → chat/{channel}] Wysyłam: {msg[:80]}...")
             await ch.send(f"```ansi\n{col}{msg}[0m```")
+        else:
+            print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
 
     # 4. COT actions
@@ -106,8 +121,7 @@ async def process_line(bot, line: str):
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        ch = client.get_channel(CHANNEL_IDS.get("admin", CHANNEL_IDS["connections"]))
-        if ch: await ch.send(f"```ansi\n[35m{msg}[0m```")
+        safe_send("admin", msg, "[35m")   # używa admin lub fallback na connections
         return
 
     # 5. Hits / Obrażenia
@@ -120,20 +134,17 @@ async def process_line(bot, line: str):
         part = hit_m.group(5)
         dmg = hit_m.group(7)
         ammo = hit_m.group(8)
-
-        # Zapisz ostatnie źródło obrażeń dla gracza (pomaga przy śmierci)
         last_hit_source[nick.lower()] = source
-
         is_dead = hp <= 0
         emoji = "☠️" if is_dead else "🔥" if hp < 20 else "⚡"
         color = "[31m" if is_dead else "[35m" if hp < 20 else "[33m"
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
-        ch = client.get_channel(CHANNEL_IDS["damages"])
-        if ch: await ch.send(f"```ansi\n{color}{msg}[0m```")
+        safe_send("damages", msg, color)
+
         if is_dead:
-            kill_ch = client.get_channel(CHANNEL_IDS["kills"])
-            if kill_ch: await kill_ch.send(f"```ansi\n[31m{date_str} | {log_time} ☠️ {nick} zabity przez {source}[0m```")
+            kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
+            safe_send("kills", kill_msg, "[31m")
         return
 
     # 6. Nieprzytomność
@@ -142,8 +153,7 @@ async def process_line(bot, line: str):
         detected_events["unconscious"] += 1
         nick = uncon_m.group(1)
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
-        ch = client.get_channel(CHANNEL_IDS["damages"])
-        if ch: await ch.send(f"```ansi\n[31m{msg}[0m```")
+        safe_send("damages", msg, "[31m")
         return
 
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
@@ -151,11 +161,10 @@ async def process_line(bot, line: str):
         detected_events["unconscious"] += 1
         nick = regain_m.group(1)
         msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
-        ch = client.get_channel(CHANNEL_IDS["damages"])
-        if ch: await ch.send(f"```ansi\n[32m{msg}[0m```")
+        safe_send("damages", msg, "[32m")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu (dodane)
+    # 7. Śmierć z rozróżnieniem powodu
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         detected_events["kill"] += 1
@@ -163,12 +172,9 @@ async def process_line(bot, line: str):
         water = float(death_m.group(2))
         energy = float(death_m.group(3))
         bleed = int(death_m.group(4))
-
-        # Określ prawdopodobną przyczynę
         lower_nick = nick.lower()
         reason = "nieznana przyczyna"
         emoji_reason = "☠️"
-
         if lower_nick in last_hit_source:
             last_source = last_hit_source[lower_nick]
             if "Infected" in last_source or "Zombie" in last_source:
@@ -188,18 +194,12 @@ async def process_line(bot, line: str):
                 emoji_reason = "🩸"
             else:
                 reason = f"ostatni hit: {last_source}"
-
         msg = f"{date_str} | {log_time} {emoji_reason} **{nick} zmarł** ({reason})\n" \
-              f"   Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
+              f" Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
+        safe_send("kills", msg, "[31m")
 
-        ch = client.get_channel(CHANNEL_IDS["kills"])
-        if ch:
-            await ch.send(f"```ansi\n[31m{msg}[0m```")
-
-        # Wyczyść po wysłaniu (zapobiega błędom przy duplikatach)
         if lower_nick in last_hit_source:
             del last_hit_source[lower_nick]
-
         return
 
     # Nierozpoznane - zapisz

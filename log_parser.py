@@ -32,6 +32,7 @@ async def process_line(bot, line: str):
         last_summary_time = now
         processed_count = 0
         for k in detected_events: detected_events[k] = 0
+
     time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
@@ -71,18 +72,18 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # NOWA SEKCA: DOŁĄCZENIE DO KOLEJKI LOGOWANIA (z .RPT)
-    queue_login_m = re.search(r'\[Login\]: Adding player (.+?) \((.+?)\) to login queue at position (\d+)', line)
-    if queue_login_m:
-        name = queue_login_m.group(1).strip()
-        steam_id = queue_login_m.group(2)
-        position = queue_login_m.group(3)
+    # KOLEJKA LOGOWANIA – tylko z .RPT
+    queue_m = re.search(r'\[Login\]: Adding player (.+?) \((.+?)\) to login queue at position (\d+)', line)
+    if queue_m:
+        name = queue_m.group(1).strip()
+        player_id = queue_m.group(2).strip()
+        position = queue_m.group(3).strip()
         key = dedup_key("queue_login", name)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["queue"] += 1
-        msg = f"{date_str} | {log_time} 🟡 {name} dołączył do kolejki logowania (pozycja: {position})"
-        await safe_send("connections", msg, "[33m")  # żółty kolor, kanał connections
+        msg = f"{date_str} | {log_time} 🟡 **{name}** ({player_id}) dołączył do kolejki logowania (pozycja {position})"
+        await safe_send("connections", msg, "[33m")
         return
 
     # 2. Rozłączenia
@@ -147,13 +148,12 @@ async def process_line(bot, line: str):
         ammo = hit_m.group(8)
         last_hit_source[nick.lower()] = source
         is_dead = hp <= 0
-        # PODZIAŁ: jeśli HP poniżej 20 → czerwony kolor i czaszka
         if hp < 20:
             emoji = "☠️"
-            color = "[31m"  # czerwony
+            color = "[31m"
         else:
             emoji = "⚡"
-            color = "[33m"  # żółty/zwykły
+            color = "[33m"
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
@@ -197,7 +197,7 @@ async def process_line(bot, line: str):
         return
 
     death_m = re.search(r'Player "(.+?)" (DEAD) .*? died. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
-    if death_m and not death_handled:
+    if death_m and 'death_handled' not in locals():
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
         if key in processed_events: return

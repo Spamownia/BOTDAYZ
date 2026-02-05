@@ -118,11 +118,8 @@ async def process_line(bot, line: str):
     # 4. COT actions
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
-        content = cot_m.group(1).strip()
-        key = dedup_key("cot", content)
-        if key in processed_events: return
-        processed_events.add(key)
         detected_events["cot"] += 1
+        content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
         await safe_send("admin", msg, "[35m")
         return
@@ -149,28 +146,6 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
-    # Poprawiona sekcja ZABÓJSTW – dokładnie Twój format
-    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
-    if killed_m:
-        victim_name = killed_m.group(1).strip()
-        killer_type = killed_m.group(2)
-        killer_name = killed_m.group(3).strip()
-        weapon = killed_m.group(4).strip()
-        distance = killed_m.group(5)
-
-        # Deduplikacja
-        key = dedup_key("kill", victim_name + killer_name)  # unikalny na podstawie victim + killer
-        if key in processed_events: return
-        processed_events.add(key)
-
-        detected_events["kill"] += 1
-
-        # Czysty format bez gwiazdek i bez zbędnych słów
-        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
-
-        await safe_send("kills", msg, "[31m")
-        return
-
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
@@ -188,15 +163,31 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu – dokładnie Twój format, bez statsów i bez bolda
-    death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
-    if death_m:
-        nick = death_m.group(1).strip()
-        key = dedup_key("death", nick)
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI (najpierw dystans, potem stats/ przyczyna)
+    # Najpierw zabójstwo dystansowe
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
+    if killed_m:
+        victim_name = killed_m.group(1).strip()
+        killer_type = killed_m.group(2)
+        killer_name = killed_m.group(3).strip()
+        weapon = killed_m.group(4).strip()
+        distance = killed_m.group(5)
+
+        key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
 
         detected_events["kill"] += 1
+
+        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
+        await safe_send("kills", msg, "[31m")
+        return
+
+    # Potem śmierć z statsami / przyczyną
+    death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
+    if death_m:
+        detected_events["kill"] += 1
+        nick = death_m.group(1).strip()
         water = float(death_m.group(2))
         energy = float(death_m.group(3))
         bleed = int(death_m.group(4))

@@ -4,7 +4,6 @@ from datetime import datetime
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-
 last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
@@ -22,9 +21,7 @@ async def process_line(bot, line: str):
     line = line.strip()
     if not line:
         return
-
     print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
-
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
@@ -34,17 +31,14 @@ async def process_line(bot, line: str):
         last_summary_time = now
         processed_count = 0
         for k in detected_events: detected_events[k] = 0
-
     time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
     log_dt = datetime.combine(today.date(), datetime.strptime(log_time, "%H:%M:%S").time())
-
     def dedup_key(action, name=""):
         return (log_time, name.lower(), action)
-
-    def safe_send(channel_key, message, color_code):
+    async def safe_send(channel_key, message, color_code):
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:
             print(f"[DISCORD ERROR] Brak klucza '{channel_key}' w CHANNEL_IDS")
@@ -58,7 +52,6 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color_code}{message}[0m```")
         except Exception as e:
             print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
-
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
@@ -73,7 +66,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
         safe_send("connections", msg, "[32m")
         return
-
     # 2. Rozłączenia
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
@@ -95,7 +87,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
         safe_send("connections", msg, color)
         return
-
     # 3. Chat
     chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
@@ -114,16 +105,14 @@ async def process_line(bot, line: str):
         else:
             print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
-
     # 4. COT actions
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        safe_send("admin", msg, "[35m")   # używa admin lub fallback na connections
+        safe_send("admin", msg, "[35m") # używa admin lub fallback na connections
         return
-
     # 5. Hits / Obrażenia
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
@@ -141,12 +130,10 @@ async def process_line(bot, line: str):
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         safe_send("damages", msg, color)
-
         if is_dead:
             kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
             safe_send("kills", kill_msg, "[31m")
         return
-
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
@@ -155,7 +142,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
         safe_send("damages", msg, "[31m")
         return
-
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
     if regain_m:
         detected_events["unconscious"] += 1
@@ -163,7 +149,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
         safe_send("damages", msg, "[32m")
         return
-
     # 7. Śmierć z rozróżnieniem powodu
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
@@ -197,11 +182,9 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji_reason} **{nick} zmarł** ({reason})\n" \
               f" Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
         safe_send("kills", msg, "[31m")
-
         if lower_nick in last_hit_source:
             del last_hit_source[lower_nick]
         return
-
     # Nierozpoznane - zapisz
     detected_events["other"] += 1
     try:

@@ -22,6 +22,23 @@ async def process_line(bot, line: str):
     line = line.strip()
     if not line:
         return
+
+    # ───────────────────────────────────────────────────────────────
+    # MOCNY FILTR – blokujemy prawie całe .RPT poza kolejką logowania
+    # ───────────────────────────────────────────────────────────────
+    if '[Login]: Adding player' not in line:
+        # Typowe linijki RPT, które chcemy całkowicie pominąć (nie liczymy, nie logujemy, nie spamujemy)
+        rpt_markers = [
+            '[CE][', 'Conflicting addon', 'Updating base class', 'String "', 
+            'Localization not present', '!!! [CE][Point]', '!!! [CE][Links]',
+            'CHAR_DEBUG', 'Wreck_', 'StaticObj_', 'Land_', 'DZ\\', 
+            'Version 1.', 'Exe timestamp:', 'Current time:', 'Initializing stats manager',
+            'Conflicting addon', 'base class', 'Weather->', 'Overcast->', 'Names->'
+        ]
+        if any(marker in line for marker in rpt_markers):
+            return  # ciche pominięcie – zero spamu, zero wpisu do unparsed
+
+    # ─── tylko linie, które przeszły filtr idą dalej ───
     print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
     processed_count += 1
     now = time.time()
@@ -108,6 +125,10 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, color)
         return
 
+    # ────────────────────────────────────────────────
+    # reszta Twojego kodu bez zmian – chat, COT, hit, uncon, kill, death...
+    # ────────────────────────────────────────────────
+
     # 3. Chat
     chat_m = re.search(r'[Chat - (.+?)]("(.+?)"(id=(.+?))): (.*)', line)
     if chat_m:
@@ -136,7 +157,7 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, "[35m")
         return
 
-    # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
+    # 5. Hits / Obrażenia
     hit_m = re.search(r'Player "(.+?)" \s*(id=(.+?)\s*pos=<.+?>)[HP: ([\d.]+)] hit by (.+?) into (.+?)((\d+)) for ([\d.]+) damage ((.+?))', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -181,6 +202,7 @@ async def process_line(bot, line: str):
 
     # Połączona sekcja ZABÓJSTW i ŚMIERCI
     killed_m = re.search(r'Player "(.+?)" \s*(DEAD) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
+    death_handled = False
     if killed_m:
         victim_name = killed_m.group(1).strip()
         killer_type = killed_m.group(2)
@@ -194,10 +216,9 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
         death_handled = True
-        return
 
     death_m = re.search(r'Player "(.+?)" (DEAD) .*? died. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
-    if death_m and 'death_handled' not in locals():
+    if death_m and not death_handled:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
         if key in processed_events: return
@@ -234,7 +255,7 @@ async def process_line(bot, line: str):
             del last_hit_source[lower_nick]
         return
 
-    # Nierozpoznane - zapisz
+    # Nierozpoznane - zapisz (już tylko to, co naprawdę nie pasuje)
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

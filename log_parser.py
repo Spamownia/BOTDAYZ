@@ -75,10 +75,9 @@ async def process_line(bot, line: str):
         return
 
     # NOWA SEKCA: DOŁĄCZENIE DO KOLEJKI
-    queue_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*(?:is queued|queued).*?(?:Position|Queue position):?\s*(\d+)(?:/\d+)?', line, re.IGNORECASE)
+    queue_m = re.search(r'Player "(.+?)"(?:\s*\(id=(.+?)\))?\s*(?:is queued|queued|queue position).*?(?:Position|Queue position|pozycja)?:?\s*(\d+)(?:/\d+)?', line, re.IGNORECASE)
     if queue_m:
         name = queue_m.group(1).strip()
-        guid = queue_m.group(2)
         position = queue_m.group(3)
         key = dedup_key("queue", name)
         if key in processed_events: return

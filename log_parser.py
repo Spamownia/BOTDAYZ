@@ -1,4 +1,4 @@
-# log_parser.py - połączona i ujednolicona wersja z importami + śmierć z przyczyną + debug
+# log_parser.py - połączona wersja + poprawione zabójstwa (tylko gracz + killer + broń + dystans)
 import re
 from datetime import datetime
 import time
@@ -146,19 +146,30 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
-    # Nowa sekcja dla zabójstw
-    killed_m = re.search(r'(AI|Player) "(.+?)" \s*\(DEAD\) \s*\(.*?pos=<.+?>\) killed by Player "(.+?)" \s*\(id=.+? pos=<.+?>\) with (.+?) from ([\d.]+) meters', line)
+    # Poprawiona sekcja ZABÓJSTW – TYLKO gracz + killer + broń + dystans
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
-        victim_type = killed_m.group(1)
-        if victim_type == 'Player':  # tylko dla graczy
-            detected_events["kill"] += 1
-            victim_name = killed_m.group(2)
-            killer_name = killed_m.group(3)
-            weapon = killed_m.group(4)
-            distance = killed_m.group(5)
-            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** z {weapon} z {distance} meters"
-            await safe_send("kills", msg, "[31m")
-            return
+        victim_name = killed_m.group(1).strip()
+        killer_type = killed_m.group(2)
+        killer_name = killed_m.group(3).strip()
+        weapon = killed_m.group(4).strip()
+        distance = killed_m.group(5)
+
+        # Deduplikacja – unikamy powtarzania tej samej śmierci
+        key = dedup_key("kill", victim_name)
+        if key in processed_events: return
+        processed_events.add(key)
+
+        detected_events["kill"] += 1
+
+        # Format: tylko najważniejsze info
+        if killer_type == "Player":
+            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** z {weapon} z {distance} m"
+        else:
+            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** ({killer_type}) z {weapon} z {distance} m"
+
+        await safe_send("kills", msg, "[31m")
+        return
 
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
@@ -177,7 +188,7 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu
+    # 7. Śmierć z rozróżnieniem powodu (stats)
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         detected_events["kill"] += 1

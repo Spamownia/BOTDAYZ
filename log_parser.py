@@ -1,6 +1,6 @@
 # log_parser.py - połączona wersja + poprawione zabójstwa i śmierci (dokładnie wg Twojego formatu)
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
@@ -9,6 +9,7 @@ last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
 last_hit_source = {}  # nick.lower() -> ostatni source trafienia
+recent_godmode_events = {}  # guid -> timestamp ostatniego Set GodMode
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
@@ -120,6 +121,12 @@ async def process_line(bot, line: str):
     if cot_m:
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
+        # Sprawdzamy, czy to Set GodMode dla gracza – zapisujemy timestamp
+        godmode_m = re.search(r'Set GodMode To (true|false) \[guid=(.+?)\]', content)
+        if godmode_m:
+            guid = godmode_m.group(2)
+            recent_godmode_events[guid] = now  # zapisujemy czas zdarzenia GodMode
+
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
         await safe_send("admin", msg, "[35m")
         return
@@ -163,8 +170,8 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI (najpierw dystans, potem stats/ przyczyna)
-    # Najpierw zabójstwo dystansowe
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI (najpierw dystans, potem stats/przyczyna)
+    # Najpierw zabójstwo dystansowe – ale pomijamy jeśli niedawno był COT GodMode
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
@@ -172,6 +179,18 @@ async def process_line(bot, line: str):
         killer_name = killed_m.group(3).strip()
         weapon = killed_m.group(4).strip()
         distance = killed_m.group(5)
+
+        # Szukamy GUID ofiary (z innych linii lub zakładamy, że kill jest po hit)
+        # Dla uproszczenia sprawdzamy, czy w ciągu 60s przed/po kill był COT GodMode dla dowolnego GUID
+        should_send_kill = True
+        for guid, ts in recent_godmode_events.items():
+            if abs(now - ts) < 60:  # 60 sekund okna
+                should_send_kill = False
+                break
+
+        if not should_send_kill:
+            # Pomijamy wysyłanie kill jeśli był GodMode blisko w czasie
+            return
 
         key = dedup_key("kill", victim_name)
         if key in processed_events: return

@@ -146,6 +146,20 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
+    # Nowa sekcja dla zabójstw
+    killed_m = re.search(r'(AI|Player) "(.+?)" \s*\(DEAD\) \s*\(.*?pos=<.+?>\) killed by Player "(.+?)" \s*\(id=.+? pos=<.+?>\) with (.+?) from ([\d.]+) meters', line)
+    if killed_m:
+        victim_type = killed_m.group(1)
+        if victim_type == 'Player':  # tylko dla graczy
+            detected_events["kill"] += 1
+            victim_name = killed_m.group(2)
+            killer_name = killed_m.group(3)
+            weapon = killed_m.group(4)
+            distance = killed_m.group(5)
+            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** z {weapon} z {distance} meters"
+            await safe_send("kills", msg, "[31m")
+            return
+
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:

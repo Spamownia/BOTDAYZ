@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI LOGOWANIA
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI
 import re
 from datetime import datetime
 import time
@@ -23,21 +23,8 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    # ───────────────────────────────────────────────────────────────
-    # FILTR – pomijamy prawie całe .RPT poza kolejką logowania
-    # ───────────────────────────────────────────────────────────────
-    if '[Login]: Adding player' not in line:
-        rpt_markers = [
-            '[CE][', 'Conflicting addon', 'Updating base class', 'String "',
-            'Localization not present', '!!! [CE][Point]', '!!! [CE][Links]',
-            'CHAR_DEBUG', 'Wreck_', 'StaticObj_', 'Land_', 'DZ\\',
-            'Version 1.', 'Exe timestamp:', 'Current time:', 'Initializing stats manager',
-            'Weather->', 'Overcast->', 'Names->', 'base class ->'
-        ]
-        if any(marker in line for marker in rpt_markers):
-            return  # ciche pominięcie – zero spamu, zero wpisu do statystyk
-
     print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
+
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
@@ -46,10 +33,9 @@ async def process_line(bot, line: str):
         print(summary)
         last_summary_time = now
         processed_count = 0
-        for k in detected_events:
-            detected_events[k] = 0
+        for k in detected_events: detected_events[k] = 0
 
-    time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:.\d+)?', line)
+    time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
@@ -74,7 +60,7 @@ async def process_line(bot, line: str):
             print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
 
     # 1. Połączenia
-    connect_m = re.search(r'Player "(.+?)"\s*(id=(.+?))\s*is connected', line)
+    connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
         name = connect_m.group(1).strip()
         guid = connect_m.group(2)
@@ -88,22 +74,8 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # KOLEJKA LOGOWANIA – tylko z .RPT
-    queue_m = re.search(r'\[Login\]: Adding player (.+?) \((.+?)\) to login queue at position (\d+)', line)
-    if queue_m:
-        name = queue_m.group(1).strip()
-        player_id = queue_m.group(2).strip()
-        position = queue_m.group(3).strip()
-        key = dedup_key("queue_login", name)
-        if key in processed_events: return
-        processed_events.add(key)
-        detected_events["queue"] += 1
-        msg = f"{date_str} | {log_time} 🟡 **{name}** ({player_id}) dołączył do kolejki logowania (pozycja {position})"
-        await safe_send("connections", msg, "[33m")
-        return
-
     # 2. Rozłączenia
-    disconnect_m = re.search(r'Player "(.+?)"\s*(id=(.+?))\s*has been disconnected', line)
+    disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
         name = disconnect_m.group(1).strip()
         guid = disconnect_m.group(2)
@@ -125,7 +97,7 @@ async def process_line(bot, line: str):
         return
 
     # 3. Chat
-    chat_m = re.search(r'[Chat - (.+?)]("(.+?)"(id=(.+?))): (.*)', line)
+    chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
         detected_events["chat"] += 1
         channel = chat_m.group(1).strip()
@@ -144,16 +116,16 @@ async def process_line(bot, line: str):
         return
 
     # 4. COT actions
-    cot_m = re.search(r'[COT] (.+)', line)
+    cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
         msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        await safe_send("admin", msg, "[37m")
+        await safe_send("admin", msg, "[35m")
         return
 
     # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
-    hit_m = re.search(r'Player "(.+?)" \s*(id=(.+?)\s*pos=<.+?>)[HP: ([\d.]+)] hit by (.+?) into (.+?)((\d+)) for ([\d.]+) damage ((.+?))', line)
+    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
         nick = hit_m.group(1)
@@ -164,12 +136,13 @@ async def process_line(bot, line: str):
         ammo = hit_m.group(8)
         last_hit_source[nick.lower()] = source
         is_dead = hp <= 0
+        # PODZIAŁ: jeśli HP poniżej 20 → czerwony kolor i czaszka
         if hp < 20:
             emoji = "☠️"
-            color = "[35m"
+            color = "[31m"  # czerwony
         else:
             emoji = "⚡"
-            color = "[33m"
+            color = "[33m"  # żółty/zwykły
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
@@ -179,15 +152,15 @@ async def process_line(bot, line: str):
         return
 
     # 6. Nieprzytomność
-    uncon_m = re.search(r'Player "(.+?)" \s*(id=(.+?)\s*pos=<.+?>) is unconscious', line)
+    uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
         detected_events["unconscious"] += 1
         nick = uncon_m.group(1)
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
-        await safe_send("damages", msg, "[36m")
+        await safe_send("damages", msg, "[31m")
         return
 
-    regain_m = re.search(r'Player "(.+?)" \s*(id=(.+?)\s*pos=<.+?>) regained consciousness', line)
+    regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
     if regain_m:
         detected_events["unconscious"] += 1
         nick = regain_m.group(1)
@@ -196,28 +169,32 @@ async def process_line(bot, line: str):
         return
 
     # Połączona sekcja ZABÓJSTW i ŚMIERCI
-    killed_m = re.search(r'Player "(.+?)" \s*(DEAD) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
-    death_handled = False
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
         killer_type = killed_m.group(2)
         killer_name = killed_m.group(3).strip()
         weapon = killed_m.group(4).strip()
         distance = killed_m.group(5)
+
         key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
+
         detected_events["kill"] += 1
+
         msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
         death_handled = True
+        return
 
-    death_m = re.search(r'Player "(.+?)" (DEAD) .*? died. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
+    death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m and not death_handled:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
         if key in processed_events: return
         processed_events.add(key)
+
         detected_events["kill"] += 1
         water = float(death_m.group(2))
         energy = float(death_m.group(3))
@@ -250,7 +227,7 @@ async def process_line(bot, line: str):
             del last_hit_source[lower_nick]
         return
 
-    # Nierozpoznane - zapisz (już tylko naprawdę nietypowe linie)
+    # Nierozpoznane - zapisz
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

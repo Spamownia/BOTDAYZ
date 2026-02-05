@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI LOGOWANIA
 import re
 from datetime import datetime
 import time
@@ -72,6 +72,20 @@ async def process_line(bot, line: str):
         guid_to_name[guid] = name
         msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
         await safe_send("connections", msg, "[32m")
+        return
+
+    # NOWA SEKCA: DOŁĄCZENIE DO KOLEJKI LOGOWANIA (z .RPT)
+    queue_login_m = re.search(r'\[Login\]: Adding player "(.+?)" \((.+?)\) to login queue at position (\d+)', line)
+    if queue_login_m:
+        name = queue_login_m.group(1).strip()
+        steam_id = queue_login_m.group(2)
+        position = queue_login_m.group(3)
+        key = dedup_key("queue_login", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["queue"] += 1
+        msg = f"{date_str} | {log_time} 🟡 {name} dołączył do kolejki logowania (pozycja: {position})"
+        await safe_send("connections", msg, "[33m")  # żółty kolor, kanał connections
         return
 
     # 2. Rozłączenia

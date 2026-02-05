@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa (tylko gracz + killer + broń + dystans)
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci (bez bolda, tylko czysty format)
 import re
 from datetime import datetime
 import time
@@ -70,7 +70,7 @@ async def process_line(bot, line: str):
         detected_events["join"] += 1
         player_login_times[name] = log_dt
         guid_to_name[guid] = name
-        msg = f"{date_str} | {log_time} 🟢 **Połączono** → {name} (ID: {guid})"
+        msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
         await safe_send("connections", msg, "[32m")
         return
 
@@ -92,7 +92,7 @@ async def process_line(bot, line: str):
             del player_login_times[name]
         emoji = "🔴"
         color = "[31m"
-        msg = f"{date_str} | {log_time} {emoji} **Rozłączono** → {name} (ID: {guid}) → {time_online}"
+        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}"
         await safe_send("connections", msg, color)
         return
 
@@ -146,7 +146,7 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
-    # Poprawiona sekcja ZABÓJSTW – TYLKO gracz + killer + broń + dystans
+    # Poprawiona sekcja ZABÓJSTW – tylko czysty format bez bolda
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
@@ -155,18 +155,18 @@ async def process_line(bot, line: str):
         weapon = killed_m.group(4).strip()
         distance = killed_m.group(5)
 
-        # Deduplikacja – unikamy powtarzania tej samej śmierci
+        # Deduplikacja
         key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
 
         detected_events["kill"] += 1
 
-        # Format: tylko najważniejsze info
+        # Czysty format bez gwiazdek
         if killer_type == "Player":
-            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** z {weapon} z {distance} m"
+            msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         else:
-            msg = f"{date_str} | {log_time} ☠️ **{victim_name}** zabity przez **{killer_name}** ({killer_type}) z {weapon} z {distance} m"
+            msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} ({killer_type}) z {weapon} z {distance} m"
 
         await safe_send("kills", msg, "[31m")
         return
@@ -188,7 +188,7 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu (stats)
+    # 7. Śmierć z rozróżnieniem powodu – tylko przyczyna, bez statsów i bez bolda
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         detected_events["kill"] += 1
@@ -218,8 +218,7 @@ async def process_line(bot, line: str):
                 emoji_reason = "🩸"
             else:
                 reason = f"ostatni hit: {last_source}"
-        msg = f"{date_str} | {log_time} {emoji_reason} **{nick} zmarł** ({reason})\n" \
-              f" Stats → Water: {water:.0f} | Energy: {energy:.0f} | Bleed: {bleed}"
+        msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason})"
         await safe_send("kills", msg, "[31m")
         if lower_nick in last_hit_source:
             del last_hit_source[lower_nick]

@@ -91,15 +91,12 @@ class DayZLogWatcher:
             if not adm_files:
                 print("[FTP] Brak plików ADM w katalogu!")
                 return None
-
-            # Parsujemy daty z nazw plików: DayZServer_x64_YYYY-MM-DD_HH-MM-SS.ADM
             def parse_date(filename):
                 try:
-                    date_str = filename[15:-4]  # YYYY-MM-DD_HH-MM-SS
+                    date_str = filename[15:-4] # YYYY-MM-DD_HH-MM-SS
                     return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
                 except:
                     return datetime.min
-
             adm_files_sorted = sorted(adm_files, key=parse_date, reverse=True)
             latest = adm_files_sorted[0]
             print(f"[FTP] Najnowszy ADM: {latest}")
@@ -111,57 +108,41 @@ class DayZLogWatcher:
     def _get_adm_content(self):
         if not self._connect():
             return ""
-
         filename = self._find_latest_adm()
         if not filename:
             return ""
-
         try:
             current_size = self.ftp.size(filename)
             current_mtime = self._get_mtime(filename)
-
-            # Jeśli to nowy plik (inna nazwa lub nowszy mtime / mniejszy rozmiar)
             if filename != self.last_adm_filename or current_size < self.last_adm_size or current_mtime > self.last_adm_mtime:
                 print(f"[FTP] Nowy / zrotowany ADM! {self.last_adm_filename} → {filename} (size: {self.last_adm_size:,} → {current_size:,} | mtime: {self.last_adm_mtime} → {current_mtime})")
                 self.last_adm_filename = filename
                 self.last_adm_pos = 0
                 self.last_adm_size = current_size
                 self.last_adm_mtime = current_mtime
-
             if self.last_adm_pos >= current_size:
-                # print(f"[FTP] Brak nowych danych w {filename} ({self.last_adm_pos:,} / {current_size:,})")
                 return ""
-
             start_pos = self.last_adm_pos
             data = []
-
             def callback(block):
                 data.append(block)
-
             print(f"[FTP] Pobieram {filename} od {start_pos:,} bajtów (plik ma {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
-
             content_bytes = b''.join(data)
             if not content_bytes:
+                print("[FTP] Pobrano 0 bajtów – pusta odpowiedź")
                 return ""
-
             content = content_bytes.decode('utf-8', errors='replace')
-
-            # Aktualizacja stanu – ZAWSZE po udanym odczycie
+            print(f"[FTP] Pobrano {len(content_bytes):,} bajtów → {len(content.splitlines())} linii")
             self.last_adm_pos = start_pos + len(content_bytes)
             self.last_adm_size = current_size
             self.last_adm_mtime = current_mtime
-
             lines_count = len(content.splitlines())
             print(f"[FTP] Pobrano {lines_count} nowych linii z {filename} (od {start_pos:,})")
-
-            # Podgląd pierwszych ~300 znaków (opcjonalnie)
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW ADM] {preview}")
-
             return content
-
         except Exception as e:
             print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
@@ -178,7 +159,6 @@ class DayZLogWatcher:
             return
         self.running = True
         print("[FTP] Start monitorowania najnowszego ADM co 25–35 sekund")
-
         def loop():
             while self.running:
                 try:
@@ -188,8 +168,7 @@ class DayZLogWatcher:
                         # Tutaj dodaj przetwarzanie content, np. parsowanie linii, wysyłanie na Discord
                 except Exception as e:
                     print(f"[FTP LOOP ERROR] {e}")
-                time.sleep(28 + (time.time() % 7))  # lekkie rozproszenie 25–35 s
-
+                time.sleep(28 + (time.time() % 7)) # lekkie rozproszenie 25–35 s
         threading.Thread(target=loop, daemon=True).start()
 
     def stop(self):
@@ -201,12 +180,10 @@ class DayZLogWatcher:
                 pass
         print("[FTP] Watcher zatrzymany")
 
-
 # Przykład użycia:
 if __name__ == '__main__':
     watcher = DayZLogWatcher()
     watcher.run()
-
     try:
         while True:
             time.sleep(10)

@@ -124,7 +124,7 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, "[35m")
         return
 
-    # 5. Hits / Obrażenia
+    # 5. Hits / Obrażenia – DODANY PODZIAŁ NA HP < 20
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -136,8 +136,13 @@ async def process_line(bot, line: str):
         ammo = hit_m.group(8)
         last_hit_source[nick.lower()] = source
         is_dead = hp <= 0
-        emoji = "☠️" if is_dead else "🔥" if hp < 20 else "⚡"
-        color = "[31m" if is_dead else "[35m" if hp < 20 else "[33m"
+        # PODZIAŁ: jeśli HP poniżej 20 → czerwony kolor i czaszka
+        if hp < 20:
+            emoji = "☠️"
+            color = "[31m"  # czerwony
+        else:
+            emoji = "⚡"
+            color = "[33m"  # żółty/zwykły
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
@@ -181,18 +186,17 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
-        # Zaznaczamy, że śmierć została obsłużona – dla uniknięcia duplikatów w death_m
-        processed_events.add(dedup_key("death", victim_name))
+        death_handled = True  # flaga - śmierć już obsłużona przez kill dystansowy
         return
 
-    # Potem śmierć z statsami / przyczyną – tylko jeśli nie było kill dystansowego
+    # Potem śmierć z statsami / przyczyną - tylko jeśli nie było kill dystansowego
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
-    if death_m:
+    if death_m and not death_handled:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
-        if key in processed_events: return  # Pomijamy jeśli był już kill dystansowy
-
+        if key in processed_events: return
         processed_events.add(key)
+
         detected_events["kill"] += 1
         water = float(death_m.group(2))
         energy = float(death_m.group(3))

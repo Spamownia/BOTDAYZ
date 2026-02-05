@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci (bez bolda, tylko czysty format)
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci (dokładnie wg Twojego formatu)
 import re
 from datetime import datetime
 import time
@@ -146,7 +146,7 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
-    # Poprawiona sekcja ZABÓJSTW – tylko czysty format bez bolda
+    # Poprawiona sekcja ZABÓJSTW – dokładnie Twój format
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
@@ -162,7 +162,7 @@ async def process_line(bot, line: str):
 
         detected_events["kill"] += 1
 
-        # Czysty format bez gwiazdek
+        # Czysty format bez gwiazdek i bez zbędnych słów
         if killer_type == "Player":
             msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         else:
@@ -188,7 +188,7 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # 7. Śmierć z rozróżnieniem powodu – tylko przyczyna, bez statsów i bez bolda
+    # 7. Śmierć z rozróżnieniem powodu – dokładnie Twój format, bez statsów i bez bolda
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         detected_events["kill"] += 1

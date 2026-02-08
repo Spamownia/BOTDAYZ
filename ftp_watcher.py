@@ -14,11 +14,9 @@ class DayZLogWatcher:
         self.ftp = None
         self.last_adm_filename = None
         self.last_adm_pos = 0
-        self.last_adm_mtime = 0
         self.last_adm_size = 0
         self.last_rpt_filename = None
         self.last_rpt_pos = 0
-        self.last_rpt_mtime = 0
         self.last_rpt_size = 0
         self._load_last_positions()
         print("[FTP WATCHER] Start – monitoruję najnowszy plik ADM i RPT w katalogu")
@@ -31,18 +29,16 @@ class DayZLogWatcher:
                     data = json.load(f)
                 self.last_adm_filename = data.get('last_adm_filename')
                 self.last_adm_pos = int(data.get('last_adm_pos', 0))
-                self.last_adm_mtime = int(data.get('last_adm_mtime', 0))
                 self.last_adm_size = int(data.get('last_adm_size', 0))
                 self.last_rpt_filename = data.get('last_rpt_filename')
                 self.last_rpt_pos = int(data.get('last_rpt_pos', 0))
-                self.last_rpt_mtime = int(data.get('last_rpt_mtime', 0))
                 self.last_rpt_size = int(data.get('last_rpt_size', 0))
                 if self.last_adm_filename:
                     print(f"[FTP] Wczytano stan ostatniego ADM: {self.last_adm_filename} "
-                          f"pos={self.last_adm_pos:,} size={self.last_adm_size:,} mtime={self.last_adm_mtime}")
+                          f"pos={self.last_adm_pos:,} size={self.last_adm_size:,}")
                 if self.last_rpt_filename:
                     print(f"[FTP] Wczytano stan ostatniego RPT: {self.last_rpt_filename} "
-                          f"pos={self.last_rpt_pos:,} size={self.last_rpt_size:,} mtime={self.last_rpt_mtime}")
+                          f"pos={self.last_rpt_pos:,} size={self.last_rpt_size:,}")
                 else:
                     print("[FTP] Brak poprzedniego pliku RPT – start od zera")
             except Exception as e:
@@ -54,11 +50,9 @@ class DayZLogWatcher:
         data = {
             'last_adm_filename': self.last_adm_filename,
             'last_adm_pos': self.last_adm_pos,
-            'last_adm_mtime': self.last_adm_mtime,
             'last_adm_size': self.last_adm_size,
             'last_rpt_filename': self.last_rpt_filename,
             'last_rpt_pos': self.last_rpt_pos,
-            'last_rpt_mtime': self.last_rpt_mtime,
             'last_rpt_size': self.last_rpt_size,
         }
         try:
@@ -86,17 +80,6 @@ class DayZLogWatcher:
                 time.sleep(4)
         print("[FTP] Nie udało się połączyć po 3 próbach")
         return False
-
-    def _get_mtime(self, filename):
-        try:
-            resp = self.ftp.sendcmd(f'MDTM {filename}')
-            if resp.startswith('213 '):
-                ts_str = resp[4:].strip()
-                ts = datetime.strptime(ts_str, '%Y%m%d%H%M%S')
-                return int(ts.timestamp())
-        except Exception as e:
-            print(f"[FTP MTIME ERROR] Dla {filename}: {e}")
-        return 0
 
     def _find_latest_adm(self):
         """Znajduje najnowszy plik .ADM w katalogu na podstawie nazwy (data w nazwie)"""
@@ -164,18 +147,17 @@ class DayZLogWatcher:
         filename = self._find_latest_adm()
         if not filename:
             return ""
+
         try:
             current_size = self.ftp.size(filename)
-            current_mtime = self._get_mtime(filename)
 
-            if (filename != self.last_adm_filename or
-                current_size < self.last_adm_size or
-                current_mtime > self.last_adm_mtime):
-                print(f"[FTP] Nowy/zrotowany ADM! {self.last_adm_filename} → {filename}")
+            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru (rzadkie)
+            if filename != self.last_adm_filename or current_size < self.last_adm_size:
+                print(f"[FTP] Nowy/zrotowany ADM! {self.last_adm_filename or '(brak)'} → {filename} "
+                      f"(size: {current_size:,} bajtów)")
                 self.last_adm_filename = filename
                 self.last_adm_pos = 0
                 self.last_adm_size = current_size
-                self.last_adm_mtime = current_mtime
 
             if self.last_adm_pos >= current_size:
                 return ""
@@ -185,7 +167,7 @@ class DayZLogWatcher:
             def callback(block):
                 data.append(block)
 
-            print(f"[FTP] Pobieram {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
+            print(f"[FTP] Pobieram ADM {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
@@ -195,16 +177,16 @@ class DayZLogWatcher:
 
             self.last_adm_pos = start_pos + len(content_bytes)
             self.last_adm_size = current_size
-            self.last_adm_mtime = current_mtime
 
             lines_count = len(content.splitlines())
-            print(f"[FTP] Pobrano {lines_count} nowych linii z {filename}")
+            print(f"[FTP] Pobrano {lines_count} nowych linii z ADM")
 
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW ADM] {preview}")
 
             return content
+
         except Exception as e:
             print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
@@ -215,18 +197,17 @@ class DayZLogWatcher:
         filename = self._find_latest_rpt()
         if not filename:
             return ""
+
         try:
             current_size = self.ftp.size(filename)
-            current_mtime = self._get_mtime(filename)
 
-            if (filename != self.last_rpt_filename or
-                current_size < self.last_rpt_size or
-                current_mtime > self.last_rpt_mtime):
-                print(f"[FTP] Nowy/zrotowany RPT! {self.last_rpt_filename} → {filename}")
+            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru
+            if filename != self.last_rpt_filename or current_size < self.last_rpt_size:
+                print(f"[FTP] Nowy/zrotowany RPT! {self.last_rpt_filename or '(brak)'} → {filename} "
+                      f"(size: {current_size:,} bajtów)")
                 self.last_rpt_filename = filename
                 self.last_rpt_pos = 0
                 self.last_rpt_size = current_size
-                self.last_rpt_mtime = current_mtime
 
             if self.last_rpt_pos >= current_size:
                 return ""
@@ -236,7 +217,7 @@ class DayZLogWatcher:
             def callback(block):
                 data.append(block)
 
-            print(f"[FTP] Pobieram {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
+            print(f"[FTP] Pobieram RPT {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
@@ -246,16 +227,16 @@ class DayZLogWatcher:
 
             self.last_rpt_pos = start_pos + len(content_bytes)
             self.last_rpt_size = current_size
-            self.last_rpt_mtime = current_mtime
 
             lines_count = len(content.splitlines())
-            print(f"[FTP] Pobrano {lines_count} nowych linii z {filename}")
+            print(f"[FTP] Pobrano {lines_count} nowych linii z RPT")
 
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW RPT] {preview}")
 
             return content
+
         except Exception as e:
             print(f"[FTP ERROR RPT {filename}]: {type(e).__name__}: {e}")
             return ""
@@ -286,7 +267,7 @@ class DayZLogWatcher:
                         #     await process_line(bot, line)
                 except Exception as e:
                     print(f"[FTP LOOP ERROR] {e}")
-                time.sleep(28 + (time.time() % 7))  # 25–35 s
+                time.sleep(28 + (time.time() % 7))  # 25–35 s losowo
 
         threading.Thread(target=loop, daemon=True).start()
 

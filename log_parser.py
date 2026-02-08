@@ -125,30 +125,7 @@ async def process_line(bot, line: str):
         if "Kicked" in content:
             emoji = "🚫"
             color = "[31m"  # czerwony dla kicków
-        msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
-        await safe_send("admin", msg, color)
-        return
-
-    # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
-    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
-    if hit_m:
-        detected_events["hit"] += 1
-        nick = hit_m.group(1)
-        hp = float(hit_m.group(3))
-        source = hit_m.group(4)
-        part = hit_m.group(5)
-        dmg = hit_m.group(7)
-        ammo = hit_m.group(8)
-        last_hit_source[nick.lower()] = source
-        is_dead = hp <= 0
-        # PODZIAŁ: jeśli HP poniżej 20 → czerwony kolor i czaszka
-        if hp < 20:
-            emoji = "☠️"
-            color = "[35m"  # czerwony
-        else:
-            emoji = "⚡"
-            color = "[33m"  # żółty/zwykły
-        extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
+        msg = f"{date_str} | {log_time} {emoji} [COT] ...(truncated 826 characters)...ra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
         if is_dead:
@@ -244,21 +221,6 @@ async def process_line(bot, line: str):
         detected_events["queue"] += 1
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
         await safe_send("connections", msg, "[34m")  # niebieski
-        return
-
-    # Nowe: Logowania (StateMachine z .RPT, tylko stany logowania)
-    statemachine_m = re.search(r'\[StateMachine\]: Player (.+?) \(dpnid (\d+) uid (.+?)\) Entering (.+?LoginState)', line)
-    if statemachine_m:
-        name = statemachine_m.group(1).strip()
-        dpnid = statemachine_m.group(2)
-        uid = statemachine_m.group(3)
-        state = statemachine_m.group(4)
-        key = dedup_key("login_state", name)
-        if key in processed_events: return
-        processed_events.add(key)
-        detected_events["join"] += 1  # liczymy jako join-related
-        msg = f"{date_str} | {log_time} 🔑 {name} (dpnid: {dpnid}, uid: {uid}) wchodzi w stan logowania: {state}"
-        await safe_send("connections", msg, "[37m")  # szary
         return
 
     # Nierozpoznane - zapisz

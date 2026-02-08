@@ -31,7 +31,7 @@ CHAT_CHANNEL_MAPPING = {
     "Admin":  1466846633689088082,
     "Team":   1466846633689088082,
     "Direct": 1466846633689088082,
-    "Unknown":1466846633689088082
+    "Unknown":None
 }
 
 CHECK_INTERVAL = 30  # sekundy

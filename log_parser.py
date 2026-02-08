@@ -124,12 +124,12 @@ async def process_line(bot, line: str):
         color = "[37m"
         if "Kicked" in content:
             emoji = "🚫"
-            color = "[33m"  # zółty dla kicków
+            color = "[33m"  # żółty dla kicków
         msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
         await safe_send("admin", msg, color)
         return
 
-    # 5. Hity i obrażenia (z logiem źródła dla śmierci)
+    # 5. Hity i obrażenia (z logiem źródła dla śmierci) + PODZIAŁ KOLORU WG HP
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -140,9 +140,15 @@ async def process_line(bot, line: str):
         dmg = hit_m.group(7)
         ammo = hit_m.group(8).strip()
         is_dead = "(DEAD)" in line
+
+        # Decyzja o kolorze w zależności od pozostałego HP
+        if hp > 20:
+            color = "[33m"      # zielony - HP powyżej 20
+        else:
+            color = "[35m"      # żółty - HP 20 lub mniej
+
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         emoji = "💀" if is_dead else "🔥"
-        color = "[31m" if is_dead else "[33m"
         lower_nick = nick.lower()
         last_hit_source[lower_nick] = source  # zapisz źródło dla śmierci
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
@@ -234,7 +240,7 @@ async def process_line(bot, line: str):
         player_id = queue_m.group(2)
         position = queue_m.group(3)
         key = dedup_key("queue", name)
-        if key in processed_events: 
+        if key in processed_events:
             print(f"[PARSER QUEUE SKIPPED] Duplikat: {name}")  # DEBUG: duplikat
             return
         processed_events.add(key)

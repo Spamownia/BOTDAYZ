@@ -115,13 +115,18 @@ async def process_line(bot, line: str):
             print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
 
-    # 4. COT actions
+    # 4. COT actions (z wyróżnieniem kicków)
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
         content = cot_m.group(1).strip()
-        msg = f"{date_str} | {log_time} 🔧 [COT] {content}"
-        await safe_send("admin", msg, "[37m")
+        emoji = "🔧"
+        color = "[37m"
+        if "Kicked" in content:
+            emoji = "🚫"
+            color = "[31m"  # czerwony dla kicków
+        msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
+        await safe_send("admin", msg, color)
         return
 
     # 5. Hits / Obrażenia – PODZIAŁ NA HP < 20
@@ -225,6 +230,35 @@ async def process_line(bot, line: str):
         await safe_send("kills", msg, "[31m")
         if lower_nick in last_hit_source:
             del last_hit_source[lower_nick]
+        return
+
+    # Nowe: Dołączenie do kolejki (z .RPT)
+    queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
+    if queue_m:
+        name = queue_m.group(1).strip()
+        player_id = queue_m.group(2)
+        position = queue_m.group(3)
+        key = dedup_key("queue", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["queue"] += 1
+        msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
+        await safe_send("connections", msg, "[34m")  # niebieski
+        return
+
+    # Nowe: Logowania (StateMachine z .RPT, tylko stany logowania)
+    statemachine_m = re.search(r'\[StateMachine\]: Player (.+?) \(dpnid (\d+) uid (.+?)\) Entering (.+?LoginState)', line)
+    if statemachine_m:
+        name = statemachine_m.group(1).strip()
+        dpnid = statemachine_m.group(2)
+        uid = statemachine_m.group(3)
+        state = statemachine_m.group(4)
+        key = dedup_key("login_state", name)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["join"] += 1  # liczymy jako join-related
+        msg = f"{date_str} | {log_time} 🔑 {name} (dpnid: {dpnid}, uid: {uid}) wchodzi w stan logowania: {state}"
+        await safe_send("connections", msg, "[37m")  # szary
         return
 
     # Nierozpoznane - zapisz

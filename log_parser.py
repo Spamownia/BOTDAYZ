@@ -124,7 +124,7 @@ async def process_line(bot, line: str):
         color = "[37m"
         if "Kicked" in content:
             emoji = "🚫"
-            color = "[31m"  # czerwony dla kicków
+            color = "[33m"  # zółty dla kicków
         msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
         await safe_send("admin", msg, color)
         return
@@ -158,7 +158,7 @@ async def process_line(bot, line: str):
         detected_events["unconscious"] += 1
         nick = uncon_m.group(1)
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
-        await safe_send("damages", msg, "[33m")
+        await safe_send("damages", msg, "[31m")
         return
 
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
@@ -240,7 +240,7 @@ async def process_line(bot, line: str):
         processed_events.add(key)
         detected_events["queue"] += 1
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
-        await safe_send("connections", msg, "[34m")  # niebieski
+        await safe_send("connections", msg, "[33m")  # żółty
         print(f"[PARSER QUEUE SENT] Wiadomość wysłana dla {name}")  # DEBUG: wysłano
         return
 

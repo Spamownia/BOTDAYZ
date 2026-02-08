@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + DOŁĄCZENIE DO KOLEJKI
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + TYLKO KOLEJKA LOGOWANIA (bez StateMachine)
 import re
 from datetime import datetime
 import time
@@ -125,7 +125,26 @@ async def process_line(bot, line: str):
         if "Kicked" in content:
             emoji = "🚫"
             color = "[31m"  # czerwony dla kicków
-        msg = f"{date_str} | {log_time} {emoji} [COT] ...(truncated 826 characters)...ra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
+        msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
+        await safe_send("admin", msg, color)
+        return
+
+    # 5. Hity i obrażenia (z logiem źródła dla śmierci)
+    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
+    if hit_m:
+        detected_events["hit"] += 1
+        nick = hit_m.group(1).strip()
+        hp = float(hit_m.group(3))
+        source = hit_m.group(4).strip()
+        part = hit_m.group(5).strip()
+        dmg = hit_m.group(7)
+        ammo = hit_m.group(8).strip()
+        is_dead = "(DEAD)" in line
+        extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
+        emoji = "💀" if is_dead else "🔥"
+        color = "[31m" if is_dead else "[33m"
+        lower_nick = nick.lower()
+        last_hit_source[lower_nick] = source  # zapisz źródło dla śmierci
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
         if is_dead:
@@ -150,7 +169,7 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI (tylko jeśli nie złapane wyżej)
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
@@ -167,11 +186,10 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
-        death_handled = True
         return
 
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
-    if death_m and not death_handled:
+    if death_m:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
         if key in processed_events: return
@@ -203,27 +221,34 @@ async def process_line(bot, line: str):
                 emoji_reason = "🩸"
             else:
                 reason = f"ostatni hit: {last_source}"
+            del last_hit_source[lower_nick]
         msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason})"
         await safe_send("kills", msg, "[31m")
-        if lower_nick in last_hit_source:
-            del last_hit_source[lower_nick]
         return
 
-    # Nowe: Dołączenie do kolejki (z .RPT)
+    # TYLKO KOLEJKA LOGOWANIA (z .RPT) - z debugiem
     queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
     if queue_m:
+        print(f"[PARSER QUEUE DETECTED] Linia złapana: {line}")  # DEBUG: potwierdzenie wykrycia
         name = queue_m.group(1).strip()
         player_id = queue_m.group(2)
         position = queue_m.group(3)
         key = dedup_key("queue", name)
-        if key in processed_events: return
+        if key in processed_events: 
+            print(f"[PARSER QUEUE SKIPPED] Duplikat: {name}")  # DEBUG: duplikat
+            return
         processed_events.add(key)
         detected_events["queue"] += 1
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
         await safe_send("connections", msg, "[34m")  # niebieski
+        print(f"[PARSER QUEUE SENT] Wiadomość wysłana dla {name}")  # DEBUG: wysłano
         return
 
-    # Nierozpoznane - zapisz
+    # Debug dla innych linii "Login" (bez kolejki) - tylko print, bez wysyłania
+    if "Login" in line and "queue" not in line.lower():
+        print(f"[PARSER LOGIN DEBUG] Inna linia Login (ignorowana): {line[:100]}...")
+
+    # Nierozpoznane - zapisz do pliku
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

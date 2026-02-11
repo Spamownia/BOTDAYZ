@@ -23,8 +23,19 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
+    # FILTR – pomijamy prawie całe .RPT poza kolejką
+    if '[Login]: Adding player' not in line:
+        rpt_markers = [
+            '[CE][', 'Conflicting addon', 'Updating base class', 'String "',
+            'Localization not present', '!!! [CE][', 'CHAR_DEBUG', 'Wreck_',
+            'StaticObj_', 'Land_', 'DZ\\', 'Version 1.', 'Exe timestamp:',
+            'Current time:', 'Initializing stats manager', 'Weather->',
+            'Overcast->', 'Names->', 'base class ->'
+        ]
+        if any(marker in line for marker in rpt_markers):
+            return
 
+    print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
@@ -124,12 +135,12 @@ async def process_line(bot, line: str):
         color = "[37m"
         if "Kicked" in content:
             emoji = "🚫"
-            color = "[33m"  # żółty dla kicków
+            color = "[33m"
         msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
         await safe_send("admin", msg, color)
         return
 
-    # 5. Hity i obrażenia (z logiem źródła dla śmierci) + PODZIAŁ KOLORU WG HP
+    # 5. Hity i obrażenia
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -140,17 +151,14 @@ async def process_line(bot, line: str):
         dmg = hit_m.group(7)
         ammo = hit_m.group(8).strip()
         is_dead = "(DEAD)" in line
-
-        # Decyzja o kolorze w zależności od pozostałego HP
         if hp > 20:
-            color = "[33m"      # zielony - HP powyżej 20
+            color = "[33m"
         else:
-            color = "[35m"      # żółty - HP 20 lub mniej
-
+            color = "[35m"
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         emoji = "💀" if is_dead else "🔥"
         lower_nick = nick.lower()
-        last_hit_source[lower_nick] = source  # zapisz źródło dla śmierci
+        last_hit_source[lower_nick] = source
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
         if is_dead:
@@ -175,32 +183,32 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI (tylko jeśli nie złapane wyżej)
-    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
+    # ───────────────────────────────────────────────────────────────
+    # NOWY, bardziej elastyczny regex na "killed by" (ADM + RPT)
+    # ───────────────────────────────────────────────────────────────
+    killed_m = re.search(
+        r'Player "(.+?)" \s*\(DEAD\).*?killed by (?:Player|AI)?\s*"([^"]+?)"',
+        line
+    )
     if killed_m:
+        print(f"[DEBUG KILL] Złapano killed by: {line}")
         victim_name = killed_m.group(1).strip()
-        killer_type = killed_m.group(2)
-        killer_name = killed_m.group(3).strip()
-        weapon = killed_m.group(4).strip()
-        distance = killed_m.group(5)
-
+        killer_name = killed_m.group(2).strip()
         key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
-
         detected_events["kill"] += 1
-
-        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
+        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name}"
         await safe_send("kills", msg, "[31m")
         return
 
+    # Death stats (ostatnia deska ratunku)
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)
         if key in processed_events: return
         processed_events.add(key)
-
         detected_events["kill"] += 1
         water = float(death_m.group(2))
         energy = float(death_m.group(3))
@@ -232,29 +240,29 @@ async def process_line(bot, line: str):
         await safe_send("kills", msg, "[31m")
         return
 
-    # TYLKO KOLEJKA LOGOWANIA (z .RPT) - z debugiem
+    # KOLEJKA LOGOWANIA (z .RPT)
     queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
     if queue_m:
-        print(f"[PARSER QUEUE DETECTED] Linia złapana: {line}")  # DEBUG: potwierdzenie wykrycia
+        print(f"[PARSER QUEUE DETECTED] Linia złapana: {line}")
         name = queue_m.group(1).strip()
         player_id = queue_m.group(2)
         position = queue_m.group(3)
         key = dedup_key("queue", name)
         if key in processed_events:
-            print(f"[PARSER QUEUE SKIPPED] Duplikat: {name}")  # DEBUG: duplikat
+            print(f"[PARSER QUEUE SKIPPED] Duplikat: {name}")
             return
         processed_events.add(key)
         detected_events["queue"] += 1
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
-        await safe_send("connections", msg, "[33m")  # żółty
-        print(f"[PARSER QUEUE SENT] Wiadomość wysłana dla {name}")  # DEBUG: wysłano
+        await safe_send("connections", msg, "[33m")
+        print(f"[PARSER QUEUE SENT] Wiadomość wysłana dla {name}")
         return
 
-    # Debug dla innych linii "Login" (bez kolejki) - tylko print, bez wysyłania
+    # Debug innych linii Login
     if "Login" in line and "queue" not in line.lower():
         print(f"[PARSER LOGIN DEBUG] Inna linia Login (ignorowana): {line[:100]}...")
 
-    # Nierozpoznane - zapisz do pliku
+    # Nierozpoznane
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

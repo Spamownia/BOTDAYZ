@@ -164,8 +164,13 @@ async def on_ready():
         ch = client.get_channel(ch_id)
         if ch:
             test_msg = f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-            print(f"[TEST] {test_msg}")  # Tylko w konsoli
-            # await ch.send(test_msg)  # Zakomentowane – nie wysyła na Discord
+            print(f"[TEST] {test_msg}")  # Tylko w konsoli rendera
+            # Zakomentowane – nie wysyła na Discord
+            # try:
+            #     await ch.send(test_msg)
+            #     print(f"[TEST] Wiadomość testowa WYSŁANA na {name}")
+            # except Exception as e:
+            #     print(f"[TEST SEND {name}] {e}")
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 

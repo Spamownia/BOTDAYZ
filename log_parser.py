@@ -41,11 +41,16 @@ async def process_line(bot, line: str):
         return (log_time, name.lower(), action)
 
     async def safe_send(channel_key, message, color_code):
-        # BLOKADA TESTÓW NA DISCORD – zostaje tylko w konsoli rendera
-        upper_msg = message.upper()
-        if any(x in upper_msg for x in ["TEST", "BOT WIDZI KANAŁ", "TEST START"]):
-            print(f"[DEBUG BLOCKED FROM DISCORD] {message[:120]}...")
-            return  # nie wysyłamy na Discord
+        # NAJMOĆNIEJSZA BLOKADA TESTÓW – NIC Z "TEST" LUB "BOT WIDZI KANAŁ" NIE IDZIE NA DISCORD
+        upper = message.upper()
+        if (
+            "TEST" in upper or
+            "BOT WIDZI KANAŁ" in upper or
+            upper.startswith("TEST START") or
+            "TEST" in upper  # ostateczna blokada na wszystko z "TEST"
+        ):
+            print(f"[TEST BLOCKED FROM DISCORD] {message[:120]}...")
+            return  # tylko konsola, zero Discorda
 
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:

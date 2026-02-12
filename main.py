@@ -126,7 +126,6 @@ async def check_and_parse_new_content():
         except Exception as line_err:
             print(f"[LINE PROCESS ERROR] {line_err} → {line[:140]}...")
 
-
 def run_watcher_loop():
     print("[WATCHER THREAD] Start pętli co ~30 sekund")
     while True:
@@ -136,7 +135,6 @@ def run_watcher_loop():
         except Exception as e:
             print(f"[WATCHER THREAD ERROR] {e}")
         time.sleep(30)
-
 
 # ────────────────────────────────────────────────
 # on_ready + test kanałów
@@ -152,9 +150,10 @@ async def on_ready():
 
     test_ids = {
         "connections": CHANNEL_IDS.get("connections"),
-        "kills": CHANNEL_IDS.get("kills"),
-        "damages": CHANNEL_IDS.get("damages"),
-        "chat": CHANNEL_IDS.get("chat"),
+        "kills":       CHANNEL_IDS.get("kills"),
+        "damages":     CHANNEL_IDS.get("damages"),
+        "admin":       CHANNEL_IDS.get("admin"),
+        "chat":        CHANNEL_IDS.get("chat"),
     }
 
     for name, ch_id in test_ids.items():
@@ -164,11 +163,9 @@ async def on_ready():
 
         ch = client.get_channel(ch_id)
         if ch:
-            try:
-                await ch.send(f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
-                print(f"[TEST] Wiadomość testowa WYSŁANA na {name}")
-            except Exception as e:
-                print(f"[TEST SEND {name}] {e}")
+            test_msg = f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+            print(f"[TEST] {test_msg}")  # Tylko w konsoli
+            # await ch.send(test_msg)  # Zakomentowane – nie wysyła na Discord
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 

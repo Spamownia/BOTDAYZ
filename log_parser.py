@@ -41,10 +41,10 @@ async def process_line(bot, line: str):
         return (log_time, name.lower(), action)
 
     async def safe_send(channel_key, message, color_code):
-        # BLOKADA TESTOWYCH WIADOMOŚCI NA DISCORD – zostają tylko w konsoli
-        if "TEST" in message.upper() or message.startswith("TEST START CONNECTIONS"):
+        # BLOKADA WSZYSTKICH TESTÓW NA DISCORD – zostaje tylko w konsoli rendera
+        if message.upper().startswith("TEST"):
             print(f"[DEBUG BLOCKED FROM DISCORD] {message[:120]}...")
-            return  # nie wysyłamy na Discord, ale logujemy w konsoli
+            return  # nie wysyłamy na Discord
 
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:

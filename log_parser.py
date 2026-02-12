@@ -65,16 +65,29 @@ async def process_line(bot, line: str):
         return (log_time, name.lower(), action)
 
     async def safe_send(channel_key, message, color_code):
+        # NAJMOĆNIEJSZA BLOKADA TESTÓW NA DISCORD – zostaje tylko w konsoli
+        upper_msg = message.upper()
+        if (
+            "TEST" in upper_msg or
+            "BOT WIDZI KANAŁ" in upper_msg or
+            "TEST START" in upper_msg
+        ):
+            print(f"[TEST BLOCKED FROM DISCORD] {message[:120]}...")
+            return  # nie wysyłamy na Discord – tylko konsola rendera
+
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:
+            print(f"[DISCORD ERROR] Brak klucza '{channel_key}' w CHANNEL_IDS")
             return
         ch = client.get_channel(ch_id)
         if not ch:
+            print(f"[DISCORD ERROR] Kanał '{channel_key}' (ID: {ch_id}) nie znaleziony!")
             return
+        print(f"[DISCORD → {channel_key}] Wysyłam: {message[:80]}{'...' if len(message)>80 else ''}")
         try:
-            await ch.send(f"```ansi
-        except:
-            pass
+            await ch.send(f"```ansi\n{color_code}{message}[0m```")
+        except Exception as e:
+            print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
 
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
@@ -146,36 +159,30 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, color)
         return
 
-    # 5. Hity i obrażenia (elastyczny regex)
-    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?)( into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\))?', line)
+    # 5. Hity i obrażenia (z logiem źródła dla śmierci) + PODZIAŁ KOLORU WG HP
+    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
         nick = hit_m.group(1).strip()
         hp = float(hit_m.group(3))
         source = hit_m.group(4).strip()
-        if hit_m.group(5):  # jeśli jest "into"
-            part = hit_m.group(6).strip()
-            dmg = hit_m.group(8)
-            ammo = hit_m.group(9).strip()
+        part = hit_m.group(5).strip()
+        dmg = hit_m.group(7)
+        ammo = hit_m.group(8).strip()
+        is_dead = "(DEAD)" in line
+        # Decyzja o kolorze w zależności od pozostałego HP
+        if hp > 20:
+            color = "[33m" # zielony - HP powyżej 20
         else:
-            part = "nieznana"
-            dmg = "nieznane"
-            ammo = "nieznane"
-        is_dead = "(DEAD)" in line or hp <= 0
-        color = "[33m" if hp > 20 else "[35m"
+            color = "[35m" # żółty - HP 20 lub mniej
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         emoji = "💀" if is_dead else "🔥"
         lower_nick = nick.lower()
-        last_hit_source[lower_nick] = source
+        last_hit_source[lower_nick] = source # zapisz źródło dla śmierci
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
         if is_dead:
-            if "FallDamage" in source:
-                kill_msg = f"{date_str} | {log_time} 🪂 {nick} zmarł (upadek z wysokości)"
-            elif "Infected" in source or "Zombie" in source:
-                kill_msg = f"{date_str} | {log_time} 🧟 {nick} zabity przez zombie"
-            else:
-                kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
+            kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
             await safe_send("kills", kill_msg, "[31m")
         return
 
@@ -196,32 +203,23 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI (elastyczny regex)
-    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?killed by (.+?)( with (.+?) from ([\d.]+) meters)?', line)
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI (tylko jeśli nie złapane wyżej)
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
-        killer = killed_m.group(2).strip().replace('"', '')  # usuwanie cudzysłowów
-        if "Player " in killer:
-            killer = killer.replace("Player ", "")
-        if "AI " in killer:
-            killer = killer.replace("AI ", "")
-        if group(3):
-            weapon = killed_m.group(4).strip()
-            distance = killed_m.group(5)
-            msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer} z {weapon} z {distance} m"
-        else:
-            if "Animal_CanisLupus" in killer:
-                msg = f"{date_str} | {log_time} 🐺 {victim_name} zabity przez wilka ({killer})"
-            else:
-                msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer}"
+        killer_type = killed_m.group(2)
+        killer_name = killed_m.group(3).strip()
+        weapon = killed_m.group(4).strip()
+        distance = killed_m.group(5)
         key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["kill"] += 1
+        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
         await safe_send("kills", msg, "[31m")
         return
 
-    death_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
+    death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         nick = death_m.group(1).strip()
         key = dedup_key("death", nick)

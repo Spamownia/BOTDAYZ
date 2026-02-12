@@ -1,4 +1,4 @@
-# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + TYLKO KOLEJKA LOGOWANIA
+# log_parser.py - połączona wersja + poprawione zabójstwa i śmierci + TYLKO KOLEJKA LOGOWANIA (bez StateMachine)
 import re
 from datetime import datetime
 import time
@@ -35,20 +35,27 @@ async def process_line(bot, line: str):
         if any(marker in line for marker in rpt_markers):
             return
 
-    # Bez printów debugujących – tylko statystyki i wysyłanie na Discord
+    # DEBUG PRINT TYLKO DLA ADM (bez .d+ w time)
+    time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
+    if time_match:
+        full_match = time_match.group(0)
+        is_rpt = '.' in full_match
+    else:
+        is_rpt = True
+
+    if not is_rpt:
+        print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
 
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
         summary = f"[PARSER SUMMARY @ {datetime.utcnow().strftime('%H:%M:%S')}] {processed_count} linii | "
         summary += " | ".join(f"{k}: {v}" for k,v in detected_events.items() if v > 0)
-        print(summary)  # tylko to zostaje w konsoli
+        print(summary)
         last_summary_time = now
         processed_count = 0
-        for k in detected_events:
-            detected_events[k] = 0
+        for k in detected_events: detected_events[k] = 0
 
-    time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
@@ -65,7 +72,7 @@ async def process_line(bot, line: str):
         if not ch:
             return
         try:
-            await ch.send(f"```ansi\n{color_code}{message}[0m```")
+            await ch.send(f"```ansi
         except:
             pass
 
@@ -119,10 +126,13 @@ async def process_line(bot, line: str):
         target_id = CHAT_CHANNEL_MAPPING.get(channel, CHANNEL_IDS["chat"])
         ch = client.get_channel(target_id)
         if ch:
+            print(f"[DISCORD → chat/{channel}] Wysyłam: {msg[:80]}...")
             await ch.send(f"```ansi\n{col}{msg}[0m```")
+        else:
+            print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
 
-    # 4. COT
+    # 4. COT actions (z wyróżnieniem kicków)
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
@@ -131,22 +141,27 @@ async def process_line(bot, line: str):
         color = "[37m"
         if "Kicked" in content:
             emoji = "🚫"
-            color = "[33m"
+            color = "[33m" # żółty dla kicków
         msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
         await safe_send("admin", msg, color)
         return
 
-    # 5. Hity i obrażenia
-    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
+    # 5. Hity i obrażenia (elastyczny regex)
+    hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?)( into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\))?', line)
     if hit_m:
         detected_events["hit"] += 1
         nick = hit_m.group(1).strip()
         hp = float(hit_m.group(3))
         source = hit_m.group(4).strip()
-        part = hit_m.group(5).strip()
-        dmg = hit_m.group(7)
-        ammo = hit_m.group(8).strip()
-        is_dead = "(DEAD)" in line
+        if hit_m.group(5):  # jeśli jest "into"
+            part = hit_m.group(6).strip()
+            dmg = hit_m.group(8)
+            ammo = hit_m.group(9).strip()
+        else:
+            part = "nieznana"
+            dmg = "nieznane"
+            ammo = "nieznane"
+        is_dead = "(DEAD)" in line or hp <= 0
         color = "[33m" if hp > 20 else "[35m"
         extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
         emoji = "💀" if is_dead else "🔥"
@@ -155,7 +170,12 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
         await safe_send("damages", msg, color)
         if is_dead:
-            kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
+            if "FallDamage" in source:
+                kill_msg = f"{date_str} | {log_time} 🪂 {nick} zmarł (upadek z wysokości)"
+            elif "Infected" in source or "Zombie" in source:
+                kill_msg = f"{date_str} | {log_time} 🧟 {nick} zabity przez zombie"
+            else:
+                kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
             await safe_send("kills", kill_msg, "[31m")
         return
 
@@ -176,23 +196,31 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # ───────────────────────────────────────────────────────────────
-    # POPRAWIONY regex na śmierć / zabicie (ADM)
-    # ───────────────────────────────────────────────────────────────
-    # Najpierw linia "killed by"
-    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?killed by\s+(.+?)(?:\s|$)', line)
+    # Połączona sekcja ZABÓJSTW i ŚMIERCI (elastyczny regex)
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?killed by (.+?)( with (.+?) from ([\d.]+) meters)?', line)
     if killed_m:
-        victim = killed_m.group(1).strip()
-        killer = killed_m.group(2).strip()
-        key = dedup_key("kill", victim)
+        victim_name = killed_m.group(1).strip()
+        killer = killed_m.group(2).strip().replace('"', '')  # usuwanie cudzysłowów
+        if "Player " in killer:
+            killer = killer.replace("Player ", "")
+        if "AI " in killer:
+            killer = killer.replace("AI ", "")
+        if group(3):
+            weapon = killed_m.group(4).strip()
+            distance = killed_m.group(5)
+            msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer} z {weapon} z {distance} m"
+        else:
+            if "Animal_CanisLupus" in killer:
+                msg = f"{date_str} | {log_time} 🐺 {victim_name} zabity przez wilka ({killer})"
+            else:
+                msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer}"
+        key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["kill"] += 1
-        msg = f"{date_str} | {log_time} ☠️ {victim} zabity przez {killer}"
         await safe_send("kills", msg, "[31m")
         return
 
-    # Potem linia stats śmierci (jeśli nie złapano killed by)
     death_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         nick = death_m.group(1).strip()
@@ -207,18 +235,18 @@ async def process_line(bot, line: str):
         reason = "nieznana przyczyna"
         emoji_reason = "☠️"
         if lower_nick in last_hit_source:
-            last_source = last_hit_source.get(lower_nick, "???")
+            last_source = last_hit_source[lower_nick]
             if "Infected" in last_source or "Zombie" in last_source:
-                reason = "zombie / infected"
+                reason = "zainfekowany / zombie"
                 emoji_reason = "🧟"
             elif "explosion" in last_source.lower() or "LandMine" in last_source:
                 reason = "eksplozja / mina"
                 emoji_reason = "💥"
             elif "Player" in last_source:
-                reason = "gracz"
+                reason = "zabity przez gracza"
                 emoji_reason = "🔫"
             elif "Fall" in last_source or "FallDamage" in last_source:
-                reason = "upadek"
+                reason = "upadek z wysokości"
                 emoji_reason = "🪂"
             elif bleed > 0 and water < 100 and energy < 200:
                 reason = "wykrwawienie / wyczerpanie"
@@ -230,21 +258,26 @@ async def process_line(bot, line: str):
         await safe_send("kills", msg, "[31m")
         return
 
-    # KOLEJKA LOGOWANIA (z .RPT) – bez debug printów
+    # TYLKO KOLEJKA LOGOWANIA (z .RPT) - z debugiem
     queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
     if queue_m:
         name = queue_m.group(1).strip()
         player_id = queue_m.group(2)
         position = queue_m.group(3)
         key = dedup_key("queue", name)
-        if key in processed_events: return
+        if key in processed_events:
+            return
         processed_events.add(key)
         detected_events["queue"] += 1
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
-        await safe_send("connections", msg, "[33m")
+        await safe_send("connections", msg, "[33m") # żółty
         return
 
-    # Nierozpoznane
+    # Debug dla innych linii "Login" (bez kolejki) - tylko print, bez wysyłania
+    if "Login" in line and "queue" not in line.lower():
+        pass  # cichy debug - nie spamuje konsoli
+
+    # Nierozpoznane - zapisz do pliku
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

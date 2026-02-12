@@ -23,18 +23,14 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    # MOCNY FILTR RPT – dodano więcej markerów, by blokować spam
+    # FILTR – pomijamy prawie całe .RPT poza kolejką
     if '[Login]: Adding player' not in line:
         rpt_markers = [
             '[CE][', 'Conflicting addon', 'Updating base class', 'String "',
             'Localization not present', '!!! [CE][', 'CHAR_DEBUG', 'Wreck_',
             'StaticObj_', 'Land_', 'DZ\\', 'Version 1.', 'Exe timestamp:',
             'Current time:', 'Initializing stats manager', 'Weather->',
-            'Overcast->', 'Names->', 'base class ->', 'Convex', 'Warning Message',
-            'PerfWarning', 'Bad vehicle type', 'String "STR_DN_UNKNOWN"', 'NETWORK (E)',
-            '[Disconnect]', '[IdleMode]', '[StateMachine]', '[LoginMachine]', '[Login]',
-            '[CE][SpawnRandomLoot]', '[CE][Links]', '[CE][VehicleRespawner]',
-            'CHAR_DEBUG - SAVE', 'Saved', '[CE][LootRespawner]', '!!! [CE]'
+            'Overcast->', 'Names->', 'base class ->'
         ]
         if any(marker in line for marker in rpt_markers):
             return
@@ -194,19 +190,30 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[32m")
         return
 
-    # Połączona sekcja ZABÓJSTW i ŚMIERCI (tylko jeśli nie złapane wyżej)
-    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\) .*? killed by (Player|AI) "(.+?)" .*? with (.+?) from ([\d.]+) meters', line)
+    # Poprawiona sekcja ZABÓJSTW i ŚMIERCI (dopasowana do wilka, upadku itp.)
+    killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*? killed by (.+)', line)
     if killed_m:
         victim_name = killed_m.group(1).strip()
-        killer_type = killed_m.group(2)
-        killer_name = killed_m.group(3).strip()
-        weapon = killed_m.group(4).strip()
-        distance = killed_m.group(5)
+        killer = killed_m.group(2).strip()
         key = dedup_key("kill", victim_name)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["kill"] += 1
-        msg = f"{date_str} | {log_time} ☠️ {victim_name} zabity przez {killer_name} z {weapon} z {distance} m"
+        emoji_reason = "☠️"
+        reason = killer
+        if "Animal_CanisLupus" in killer:
+            emoji_reason = "🐺"
+            reason = "wilczur szary"
+        elif "Wolf" in killer:
+            emoji_reason = "🐺"
+            reason = "wilczur szary"
+        elif "Infected" in killer or "Zombie" in killer:
+            emoji_reason = "🧟"
+            reason = "zainfekowany / zombie"
+        elif "Player" in killer:
+            emoji_reason = "🔫"
+            reason = "gracz"
+        msg = f"{date_str} | {log_time} {emoji_reason} {victim_name} zabity przez {reason}"
         await safe_send("kills", msg, "[31m")
         return
 
@@ -237,6 +244,9 @@ async def process_line(bot, line: str):
             elif "Fall" in last_source or "FallDamage" in last_source:
                 reason = "upadek z wysokości"
                 emoji_reason = "🪂"
+            elif "Wolf" in last_source or "Animal_CanisLupus" in last_source:
+                reason = "wilczur szary"
+                emoji_reason = "🐺"
             elif bleed > 0 and water < 100 and energy < 200:
                 reason = "wykrwawienie / wyczerpanie"
                 emoji_reason = "🩸"

@@ -23,14 +23,18 @@ async def process_line(bot, line: str):
     if not line:
         return
 
-    # FILTR – pomijamy prawie całe .RPT poza kolejką
+    # MOCNY FILTR RPT – dodano więcej markerów, by blokować spam
     if '[Login]: Adding player' not in line:
         rpt_markers = [
             '[CE][', 'Conflicting addon', 'Updating base class', 'String "',
             'Localization not present', '!!! [CE][', 'CHAR_DEBUG', 'Wreck_',
             'StaticObj_', 'Land_', 'DZ\\', 'Version 1.', 'Exe timestamp:',
             'Current time:', 'Initializing stats manager', 'Weather->',
-            'Overcast->', 'Names->', 'base class ->'
+            'Overcast->', 'Names->', 'base class ->', 'Convex', 'Warning Message',
+            'PerfWarning', 'Bad vehicle type', 'String "STR_DN_UNKNOWN"', 'NETWORK (E)',
+            '[Disconnect]', '[IdleMode]', '[StateMachine]', '[LoginMachine]', '[Login]',
+            '[CE][SpawnRandomLoot]', '[CE][Links]', '[CE][VehicleRespawner]',
+            'CHAR_DEBUG - SAVE', 'Saved', '[CE][LootRespawner]', '!!! [CE]'
         ]
         if any(marker in line for marker in rpt_markers):
             return
@@ -65,29 +69,16 @@ async def process_line(bot, line: str):
         return (log_time, name.lower(), action)
 
     async def safe_send(channel_key, message, color_code):
-        # NAJMOĆNIEJSZA BLOKADA TESTÓW NA DISCORD – zostaje tylko w konsoli
-        upper_msg = message.upper()
-        if (
-            "TEST" in upper_msg or
-            "BOT WIDZI KANAŁ" in upper_msg or
-            "TEST START" in upper_msg
-        ):
-            print(f"[TEST BLOCKED FROM DISCORD] {message[:120]}...")
-            return  # nie wysyłamy na Discord – tylko konsola rendera
-
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:
-            print(f"[DISCORD ERROR] Brak klucza '{channel_key}' w CHANNEL_IDS")
             return
         ch = client.get_channel(ch_id)
         if not ch:
-            print(f"[DISCORD ERROR] Kanał '{channel_key}' (ID: {ch_id}) nie znaleziony!")
             return
-        print(f"[DISCORD → {channel_key}] Wysyłam: {message[:80]}{'...' if len(message)>80 else ''}")
         try:
             await ch.send(f"```ansi\n{color_code}{message}[0m```")
-        except Exception as e:
-            print(f"[DISCORD SEND FAIL] {channel_key}: {e}")
+        except:
+            pass
 
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)

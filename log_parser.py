@@ -233,7 +233,7 @@ async def process_line(bot, line: str):
             ai_name = ai_match.group(1).strip()
             weapon_dist = re.search(r'with (.+?)( from ([\d.]+) meters)?', killer_full)
             if weapon_dist:
-                weapon = weapon_dist.group(1).strip()
+                weapon = weapon_dist.group(1).strip().strip('()')  # Usuń nawiasy jeśli " (MeleeFist)"
                 distance = weapon_dist.group(3) if weapon_dist.group(3) else None
                 reason = f'AI "{ai_name}" z {weapon}' + (f' z {distance} m' if distance else '')
             else:
@@ -273,7 +273,7 @@ async def process_line(bot, line: str):
 
         if lower_nick in last_hit_source:
             last_source = last_hit_source[lower_nick]
-            if any(x in last_source for x in ["Infected", "Zombie"]):
+            if "Infected" in last_source or "Zombie" in last_source:
                 emoji = "🧟"
                 reason = "zainfekowany / zombie"
             elif "explosion" in last_source.lower() or "LandMine" in last_source:
@@ -282,10 +282,10 @@ async def process_line(bot, line: str):
             elif "Player" in last_source:
                 emoji = "🔫"
                 reason = "zabity przez gracza"
-            elif any(x in last_source for x in ["Fall", "FallDamage"]):
+            elif "Fall" in last_source or "FallDamage" in last_source:
                 emoji = "🪂"
                 reason = "upadek z wysokości"
-            elif any(x in last_source for x in ["Wolf", "Animal_CanisLupus"]):
+            elif "Wolf" in last_source or "Animal_CanisLupus" in last_source:
                 emoji = "🐺"
                 reason = "wilczur szary"
             elif bleed > 0 and water < 100 and energy < 200:

@@ -4,25 +4,22 @@ from datetime import datetime
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
-
 last_death_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
-last_hit_source = {}  # nick.lower() -> ostatni source trafienia
+last_hit_source = {} # nick.lower() -> ostatni source trafienia
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
 processed_count = 0
 detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0, "queue":0}
-processed_events = set()  # deduplikacja
-
+processed_events = set() # deduplikacja
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
     client = bot
     line = line.strip()
     if not line:
         return
-
     # FILTR – pomijamy prawie całe .RPT poza kolejką
     if '[Login]: Adding player' not in line:
         rpt_markers = [
@@ -34,7 +31,6 @@ async def process_line(bot, line: str):
         ]
         if any(marker in line for marker in rpt_markers):
             return
-
     # DEBUG PRINT TYLKO DLA ADM (bez .d+ w time)
     time_match = re.search(r'^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?', line)
     if time_match:
@@ -42,10 +38,8 @@ async def process_line(bot, line: str):
         is_rpt = '.' in full_match
     else:
         is_rpt = True
-
     if not is_rpt:
         print(f"[PARSER DEBUG] Przetwarzam linię: {line[:120]}{'...' if len(line)>120 else ''}")
-
     processed_count += 1
     now = time.time()
     if now - last_summary_time >= SUMMARY_INTERVAL:
@@ -55,15 +49,12 @@ async def process_line(bot, line: str):
         last_summary_time = now
         processed_count = 0
         for k in detected_events: detected_events[k] = 0
-
     log_time = time_match.group(1) if time_match else datetime.utcnow().strftime("%H:%M:%S")
     today = datetime.utcnow()
     date_str = today.strftime("%d.%m.%Y")
     log_dt = datetime.combine(today.date(), datetime.strptime(log_time, "%H:%M:%S").time())
-
     def dedup_key(action, name=""):
         return (log_time, name.lower(), action)
-
     async def safe_send(channel_key, message, color_code):
         ch_id = CHANNEL_IDS.get(channel_key)
         if not ch_id:
@@ -75,7 +66,6 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{color_code}{message}[0m```")
         except:
             pass
-
     # 1. Połączenia
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
@@ -90,7 +80,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {guid})"
         await safe_send("connections", msg, "[32m")
         return
-
     # 2. Rozłączenia
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
@@ -112,7 +101,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {guid}) → {time_online}"
         await safe_send("connections", msg, color)
         return
-
     # 3. Chat
     chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
@@ -131,7 +119,6 @@ async def process_line(bot, line: str):
         else:
             print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
-
     # 4. COT actions (z wyróżnieniem kicków)
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
@@ -145,7 +132,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji} [COT] {content}"
         await safe_send("admin", msg, color)
         return
-
     # 5. Hity i obrażenia (z logiem źródła dla śmierci) + PODZIAŁ KOLORU WG HP
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
@@ -172,7 +158,6 @@ async def process_line(bot, line: str):
             kill_msg = f"{date_str} | {log_time} ☠️ {nick} zabity przez {source}"
             await safe_send("kills", kill_msg, "[31m")
         return
-
     # 6. Nieprzytomność
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
@@ -181,7 +166,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 😵 {nick} jest nieprzytomny"
         await safe_send("damages", msg, "[31m")
         return
-
     regain_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) regained consciousness', line)
     if regain_m:
         detected_events["unconscious"] += 1
@@ -189,7 +173,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 🟢 {nick} odzyskał przytomność"
         await safe_send("damages", msg, "[32m")
         return
-
     # Poprawiona sekcja ZABÓJSTW i ŚMIERCI (dopasowana do wilka, upadku itp.)
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*? killed by (.+)', line)
     if killed_m:
@@ -216,7 +199,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji_reason} {victim_name} zabity przez {reason}"
         await safe_send("kills", msg, "[31m")
         return
-
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         nick = death_m.group(1).strip()
@@ -256,7 +238,6 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason})"
         await safe_send("kills", msg, "[31m")
         return
-
     # TYLKO KOLEJKA LOGOWANIA (z .RPT) - z debugiem
     queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
     if queue_m:
@@ -271,11 +252,9 @@ async def process_line(bot, line: str):
         msg = f"{date_str} | {log_time} 🕒 {name} (ID: {player_id}) dołączył do kolejki logowania na pozycji {position}"
         await safe_send("connections", msg, "[33m") # żółty
         return
-
     # Debug dla innych linii "Login" (bez kolejki) - tylko print, bez wysyłania
     if "Login" in line and "queue" not in line.lower():
-        pass  # cichy debug - nie spamuje konsoli
-
+        pass # cichy debug - nie spamuje konsoli
     # Nierozpoznane - zapisz do pliku
     detected_events["other"] += 1
     try:

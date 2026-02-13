@@ -187,7 +187,7 @@ async def process_line(bot, line: str):
         return
 
     # ────────────────────────────────────────────────
-    # 7. ZABÓJSTWA i ŚMIERCI – najbardziej rozbudowana wersja
+    # 7. ZABÓJSTWA i ŚMIERCI – finalna, najbardziej dokładna wersja
     # ────────────────────────────────────────────────
     # Najpierw linia "killed by ..."
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*? killed by (.+)', line)
@@ -221,7 +221,7 @@ async def process_line(bot, line: str):
             ai_name = ai_match.group(1).strip()
             weapon_dist = re.search(r'with (.+?)( from ([\d.]+) meters)?', killer_full)
             if weapon_dist:
-                weapon = weapon_dist.group(1).strip().strip('()')  # Usuń nawiasy z "(MeleeFist)"
+                weapon = weapon_dist.group(1).strip().strip('()')  # Usuwamy nawiasy
                 distance = weapon_dist.group(3) if weapon_dist.group(3) else None
                 reason = f'AI "{ai_name}" z {weapon}' + (f' z {distance} m' if distance else '')
             else:
@@ -287,9 +287,7 @@ async def process_line(bot, line: str):
         await safe_send("kills", msg, "[31m")
         return
 
-    # ────────────────────────────────────────────────
     # KOLEJKA LOGOWANIA
-    # ────────────────────────────────────────────────
     queue_m = re.search(r'\[Login\]: Adding player (.+?) \((\d+)\) to login queue at position (\d+)', line)
     if queue_m:
         name = queue_m.group(1).strip()
@@ -304,9 +302,7 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[33m")
         return
 
-    # ────────────────────────────────────────────────
     # Nierozpoznane
-    # ────────────────────────────────────────────────
     detected_events["other"] += 1
     try:
         with open(UNPARSED_LOG, "a", encoding="utf-8") as f:

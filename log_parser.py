@@ -76,9 +76,7 @@ async def process_line(bot, line: str):
         except:
             pass
 
-    # ────────────────────────────────────────────────
     # 1. Połączenia
-    # ────────────────────────────────────────────────
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
         name = connect_m.group(1).strip()
@@ -93,9 +91,7 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # ────────────────────────────────────────────────
     # 2. Rozłączenia
-    # ────────────────────────────────────────────────
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
         name = disconnect_m.group(1).strip()
@@ -117,9 +113,7 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, color)
         return
 
-    # ────────────────────────────────────────────────
     # 3. Chat
-    # ────────────────────────────────────────────────
     chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
         detected_events["chat"] += 1
@@ -138,9 +132,7 @@ async def process_line(bot, line: str):
             print(f"[DISCORD ERROR] Kanał dla {channel} (ID: {target_id}) nie znaleziony!")
         return
 
-    # ────────────────────────────────────────────────
     # 4. COT actions
-    # ────────────────────────────────────────────────
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
@@ -154,9 +146,7 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, color)
         return
 
-    # ────────────────────────────────────────────────
     # 5. Hity i obrażenia
-    # ────────────────────────────────────────────────
     hit_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\)\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)', line)
     if hit_m:
         detected_events["hit"] += 1
@@ -179,9 +169,7 @@ async def process_line(bot, line: str):
             await safe_send("kills", kill_msg, "[31m")
         return
 
-    # ────────────────────────────────────────────────
     # 6. Nieprzytomność
-    # ────────────────────────────────────────────────
     uncon_m = re.search(r'Player "(.+?)" \s*\(id=(.+?)\s*pos=<.+?>\) is unconscious', line)
     if uncon_m:
         detected_events["unconscious"] += 1
@@ -233,7 +221,7 @@ async def process_line(bot, line: str):
             ai_name = ai_match.group(1).strip()
             weapon_dist = re.search(r'with (.+?)( from ([\d.]+) meters)?', killer_full)
             if weapon_dist:
-                weapon = weapon_dist.group(1).strip().strip('()')  # Usuń nawiasy jeśli " (MeleeFist)"
+                weapon = weapon_dist.group(1).strip().strip('()')  # Usuń nawiasy z "(MeleeFist)"
                 distance = weapon_dist.group(3) if weapon_dist.group(3) else None
                 reason = f'AI "{ai_name}" z {weapon}' + (f' z {distance} m' if distance else '')
             else:

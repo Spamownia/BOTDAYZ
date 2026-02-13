@@ -233,8 +233,8 @@ async def process_line(bot, line: str):
             emoji = "🐺"
             reason = "wilczur szary"
 
-        # 4. Zombie / Infected
-        if any(x in killer_full for x in ["Infected", "Zombie"]):
+        # 4. Zombie / Infected / Zmb
+        if any(x in killer_full for x in ["Infected", "Zombie", "Zmb"]):
             emoji = "🧟"
             reason = "zainfekowany / zombie"
 
@@ -261,7 +261,7 @@ async def process_line(bot, line: str):
 
         if lower_nick in last_hit_source:
             last_source = last_hit_source[lower_nick]
-            if "Infected" in last_source or "Zombie" in last_source:
+            if "Infected" in last_source or "Zombie" in last_source or "Zmb" in last_source:
                 emoji = "🧟"
                 reason = "zainfekowany / zombie"
             elif "explosion" in last_source.lower() or "LandMine" in last_source:

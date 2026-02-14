@@ -187,7 +187,7 @@ async def process_line(bot, line: str):
         return
 
     # ────────────────────────────────────────────────
-    # 7. ZABÓJSTWA i ŚMIERCI – finalna, najbardziej dokładna wersja
+    # 7. ZABÓJSTWA i ŚMIERCI – finalna wersja (dopasowana do wszystkich 11 przykładów)
     # ────────────────────────────────────────────────
     # Najpierw linia "killed by ..."
     killed_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*? killed by (.+)', line)
@@ -202,7 +202,7 @@ async def process_line(bot, line: str):
         emoji = "☠️"
         reason = killer_full
 
-        # 1. Gracz
+        # Gracz
         player_match = re.search(r'Player "(.+?)"', killer_full)
         if player_match:
             killer_nick = player_match.group(1).strip()
@@ -215,25 +215,25 @@ async def process_line(bot, line: str):
                 reason = f"{killer_nick} (gracz)"
             emoji = "🔫"
 
-        # 2. AI
+        # AI
         ai_match = re.search(r'AI "(.+?)"', killer_full)
         if ai_match:
             ai_name = ai_match.group(1).strip()
             weapon_dist = re.search(r'with (.+?)( from ([\d.]+) meters)?', killer_full)
             if weapon_dist:
-                weapon = weapon_dist.group(1).strip().strip('()')  # Usuwamy nawiasy
+                weapon = weapon_dist.group(1).strip().strip('()')
                 distance = weapon_dist.group(3) if weapon_dist.group(3) else None
                 reason = f'AI "{ai_name}" z {weapon}' + (f' z {distance} m' if distance else '')
             else:
                 reason = f'AI "{ai_name}"'
             emoji = "🤖"
 
-        # 3. Wilk / CanisLupus
-        if any(x in killer_full for x in ["Animal_CanisLupus_Grey", "Wolf"]):
+        # Wilk
+        if any(x in killer_full for x in ["Animal_CanisLupus_Grey", "Animal_CanisLupus_White", "Wolf"]):
             emoji = "🐺"
             reason = "wilczur szary"
 
-        # 4. Zombie / Infected / Zmb
+        # Zombie / Infected / Zmb
         if any(x in killer_full for x in ["Infected", "Zombie", "Zmb"]):
             emoji = "🧟"
             reason = "zainfekowany / zombie"
@@ -242,7 +242,7 @@ async def process_line(bot, line: str):
         await safe_send("kills", msg, "[31m")
         return
 
-    # Linia śmierci ze statystykami (ostatnia linia po HP:0)
+    # Śmierć ze statystykami (ostatnia linia)
     death_m = re.search(r'Player "(.+?)" \(DEAD\) .*? died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)', line)
     if death_m:
         nick = death_m.group(1).strip()
@@ -261,7 +261,11 @@ async def process_line(bot, line: str):
 
         if lower_nick in last_hit_source:
             last_source = last_hit_source[lower_nick]
-            if "Infected" in last_source or "Zombie" in last_source or "Zmb" in last_source:
+            # Skrócona nazwa dla AI (tylko AI "Niki")
+            if "AI " in last_source:
+                ai_name = re.search(r'AI "(.+?)"', last_source).group(1).strip()
+                reason = f"ostatni hit: AI \"{ai_name}\""
+            elif "Infected" in last_source or "Zombie" in last_source or "Zmb" in last_source:
                 emoji = "🧟"
                 reason = "zainfekowany / zombie"
             elif "explosion" in last_source.lower() or "LandMine" in last_source:

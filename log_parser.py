@@ -5,15 +5,15 @@ import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
-last_death_time = defaultdict(float)
-last_killed_time = defaultdict(float)   # ← DODANE – do blokowania duplikatów po "killed by"
-player_login_times = {}
-guid_to_name = {}
-last_hit_details = defaultdict(lambda: (None, None, None))  # nick.lower() -> (source, weapon, distance)
-UNPARSED_LOG = "unparsed_lines.log"
-SUMMARY_INTERVAL = 30
-last_summary_time = time.time()
-processed_count = 0
+last_death_time       = defaultdict(float)
+last_processed_death  = defaultdict(float)   # klucz – blokuje duplikaty po wysłaniu śmierci
+player_login_times    = {}
+guid_to_name          = {}
+last_hit_details      = defaultdict(lambda: (None, None, None))  # nick.lower() -> (source, weapon, distance)
+UNPARSED_LOG          = "unparsed_lines.log"
+SUMMARY_INTERVAL      = 30
+last_summary_time     = time.time()
+processed_count       = 0
 detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0, "queue":0}
 processed_events = set()  # deduplikacja
 
@@ -217,7 +217,8 @@ async def process_line(bot, line: str):
         processed_events.add(key)
         detected_events["kill"] += 1
 
-        last_killed_time[victim.lower()] = now      # ← kluczowa linia – blokada duplikatu
+        lower_victim = victim.lower()
+        last_processed_death[lower_victim] = now     # ← blokada duplikatów
 
         dist_str = f" z {distance} m" if distance else ""
         weapon_str = f" ({weapon})" if weapon else ""
@@ -225,11 +226,11 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} {emoji} {victim} zabity przez {killer}{weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
-        last_death_time[victim.lower()] = now
+        last_death_time[lower_victim] = now
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "died. Stats>" – pomijamy jeśli była już "killed by" niedawno
+    # LINIA "died. Stats>" – pomijamy jeśli była już śmierć wysłana niedawno
     # ───────────────────────────────────────────────────────────────
     death_m = re.search(
         r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
@@ -244,7 +245,8 @@ async def process_line(bot, line: str):
 
         lower_nick = nick.lower()
 
-        if now - last_killed_time[lower_nick] < 5:    # ← kluczowa linia – blokada duplikatu
+        # Blokada duplikatów – jeśli śmierć była już wysłana w ciągu 45 sekund
+        if now - last_processed_death[lower_nick] < 45:
             return
 
         source, weapon_raw, distance = last_hit_details.get(lower_nick, (None, None, None))
@@ -283,6 +285,7 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason}){weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
+        last_processed_death[lower_nick] = now     # ← aktualizacja po wysłaniu
         last_death_time[lower_nick] = now
 
         if lower_nick in last_hit_details:

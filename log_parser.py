@@ -6,7 +6,7 @@ from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
 last_death_time       = defaultdict(float)
-last_processed_death  = defaultdict(float)   # ← kluczowa zmienna: blokuje duplikaty śmierci
+last_killed_by_time   = defaultdict(float)   # ← blokada duplikatów po linii "killed by"
 player_login_times    = {}
 guid_to_name          = {}
 last_hit_details      = defaultdict(lambda: (None, None, None))  # nick.lower() -> (source, weapon, distance)
@@ -218,7 +218,7 @@ async def process_line(bot, line: str):
         detected_events["kill"] += 1
 
         lower_victim = victim.lower()
-        last_processed_death[lower_victim] = now     # ← ZAPISUJEMY, ŻE ŚMIERĆ JUŻ WYSŁANA
+        last_killed_by_time[lower_victim] = now     # ← ZAPISUJEMY CZAS PRZETWORZENIA "killed by"
 
         dist_str = f" z {distance} m" if distance else ""
         weapon_str = f" ({weapon})" if weapon else ""
@@ -230,7 +230,7 @@ async def process_line(bot, line: str):
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "died. Stats>" – pomijamy jeśli śmierć była już wysłana
+    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by"
     # ───────────────────────────────────────────────────────────────
     death_m = re.search(
         r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
@@ -245,8 +245,8 @@ async def process_line(bot, line: str):
 
         lower_nick = nick.lower()
 
-        # Jeśli śmierć już została wysłana w ciągu ostatnich 60 sekund → pomijamy
-        if now - last_processed_death[lower_nick] < 60:
+        # Jeśli w ciągu ostatnich 12 sekund była linia killed by → pomijamy wysyłanie
+        if now - last_killed_by_time[lower_nick] < 12:
             return
 
         source, weapon_raw, distance = last_hit_details.get(lower_nick, (None, None, None))
@@ -285,9 +285,6 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason}){weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
-
-        # Aktualizujemy timestamp po wysłaniu (dla bezpieczeństwa)
-        last_processed_death[lower_nick] = now
         last_death_time[lower_nick] = now
 
         if lower_nick in last_hit_details:

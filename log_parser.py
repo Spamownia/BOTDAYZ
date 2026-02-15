@@ -68,7 +68,9 @@ async def process_line(bot, line: str):
         except:
             pass
 
-    # 1. Połączenia
+    # ───────────────────────────────────────────────────────────────
+    # Połączenia
+    # ───────────────────────────────────────────────────────────────
     connect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*is connected', line)
     if connect_m:
         name = connect_m.group(1).strip()
@@ -83,7 +85,9 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # 2. Rozłączenia
+    # ───────────────────────────────────────────────────────────────
+    # Rozłączenia
+    # ───────────────────────────────────────────────────────────────
     disconnect_m = re.search(r'Player "(.+?)"\s*\(id=(.+?)\)\s*has been disconnected', line)
     if disconnect_m:
         name = disconnect_m.group(1).strip()
@@ -105,7 +109,9 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, color)
         return
 
-    # 3. Chat
+    # ───────────────────────────────────────────────────────────────
+    # Chat
+    # ───────────────────────────────────────────────────────────────
     chat_m = re.search(r'\[Chat - (.+?)\]\("(.+?)"\(id=(.+?)\)\): (.*)', line)
     if chat_m:
         detected_events["chat"] += 1
@@ -121,7 +127,9 @@ async def process_line(bot, line: str):
             await ch.send(f"```ansi\n{col}{msg}[0m```")
         return
 
-    # 4. COT
+    # ───────────────────────────────────────────────────────────────
+    # COT
+    # ───────────────────────────────────────────────────────────────
     cot_m = re.search(r'\[COT\] (.+)', line)
     if cot_m:
         detected_events["cot"] += 1
@@ -135,9 +143,11 @@ async def process_line(bot, line: str):
         await safe_send("admin", msg, color)
         return
 
-    # 5. Hity i obrażenia
+    # ───────────────────────────────────────────────────────────────
+    # Hity
+    # ───────────────────────────────────────────────────────────────
     hit_m = re.search(
-        r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+\)) for ([\d.]+) damage \((.+?)\)',
+        r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)',
         line
     )
     if hit_m:
@@ -174,7 +184,9 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, "[35m")
         return
 
-    # 6. Nieprzytomność
+    # ───────────────────────────────────────────────────────────────
+    # Nieprzytomność
+    # ───────────────────────────────────────────────────────────────
     uncon_m = re.search(r'Player "(.+?)" .*? is unconscious', line)
     if uncon_m:
         detected_events["unconscious"] += 1
@@ -192,10 +204,10 @@ async def process_line(bot, line: str):
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "killed by" – priorytetowa, blokuje późniejszą "died"
+    # 1. LINIA "killed by" – najpewniejsza, blokuje wszystko inne
     # ───────────────────────────────────────────────────────────────
     killed_m = re.search(
-        r'Player "(.+?)" \s*\(DEAD\).*?killed by\s+(.+?) (?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?$',
+        r'Player "(.+?)" \s*\(DEAD\).*?killed by\s+(.+?)(?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?$',
         line, re.IGNORECASE
     )
     if killed_m:
@@ -204,16 +216,9 @@ async def process_line(bot, line: str):
         weapon_raw = killed_m.group(3)
         distance = killed_m.group(4)
 
-        # Czyszczenie killera
+        # Czyszczenie nazwy zabójcy
         killer_match = re.search(r'(?:Player|AI) "(.+?)"', killer_raw)
-        if killer_match:
-            killer = killer_match.group(1)
-        elif "Animal_CanisLupus" in killer_raw:
-            killer = "Wilczur Szary"
-        elif "Bear" in killer_raw:
-            killer = "Niedźwiedź"
-        else:
-            killer = killer_raw
+        killer = killer_match.group(1) if killer_match else killer_raw
 
         # Czyszczenie broni
         weapon = None
@@ -231,7 +236,19 @@ async def process_line(bot, line: str):
 
         dist_str = f" z {distance} m" if distance else ""
         weapon_str = f" ({weapon})" if weapon else ""
-        emoji = "🔫" if "Player" in killer_raw or "AI" in killer_raw else "🐺" if "Wolf" in killer_raw or "CanisLupus" in killer_raw else "🐻" if "Bear" in killer_raw else "🧟" if "Infected" in killer_raw else "☠️"
+
+        if "Wolf" in killer_raw or "CanisLupus" in killer_raw:
+            emoji = "🐺"
+            killer = "wilczur szary"
+        elif "Bear" in killer_raw:
+            emoji = "🐻"
+            killer = "niedźwiedź"
+        elif "Infected" in killer_raw or "Zombie" in killer_raw:
+            emoji = "🧟"
+        elif "Player" in killer_raw or "AI" in killer_raw:
+            emoji = "🔫"
+        else:
+            emoji = "☠️"
 
         msg = f"{date_str} | {log_time} {emoji} {victim} zabity przez {killer}{weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
@@ -239,7 +256,7 @@ async def process_line(bot, line: str):
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "committed suicide" – nowa sekcja dla samobójstw
+    # 2. Samobójstwo (committed suicide)
     # ───────────────────────────────────────────────────────────────
     suicide_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?committed suicide', line)
     if suicide_m:
@@ -251,17 +268,13 @@ async def process_line(bot, line: str):
         processed_events.add(key)
         detected_events["kill"] += 1
 
-        emoji_reason = "💣"  # lub "☠️" dla samobójstwa
-        reason = "samobójstwo"
-        msg = f"{date_str} | {log_time} {emoji_reason} {nick} popełnił samobójstwo"
+        msg = f"{date_str} | {log_time} 💀 {nick} popełnił samobójstwo"
         await safe_send("kills", msg, "[31m")
         last_death_time[lower_nick] = now
-        if lower_nick in last_hit_details:
-            del last_hit_details[lower_nick]
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by" lub "suicide"
+    # 3. LINIA "died. Stats>" – tylko gdy nie było killed by / suicide
     # ───────────────────────────────────────────────────────────────
     death_m = re.search(
         r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
@@ -276,8 +289,8 @@ async def process_line(bot, line: str):
         processed_events.add(key)
         detected_events["kill"] += 1
 
-        # Blokada po linii killed by
-        if now - last_killed_by_time[lower_nick] < 12:
+        # Blokada po linii killed by lub suicide (15 sekund)
+        if now - last_killed_by_time[lower_nick] < 15:
             return
 
         water = float(death_m.group(2))

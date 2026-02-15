@@ -239,7 +239,29 @@ async def process_line(bot, line: str):
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by"
+    # LINIA "committed suicide" – nowa sekcja dla samobójstw
+    # ───────────────────────────────────────────────────────────────
+    suicide_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?committed suicide', line)
+    if suicide_m:
+        nick = suicide_m.group(1).strip()
+        lower_nick = nick.lower()
+
+        key = dedup_key("death", nick)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["kill"] += 1
+
+        emoji_reason = "💣"  # lub "☠️" dla samobójstwa
+        reason = "samobójstwo"
+        msg = f"{date_str} | {log_time} {emoji_reason} {nick} popełnił samobójstwo"
+        await safe_send("kills", msg, "[31m")
+        last_death_time[lower_nick] = now
+        if lower_nick in last_hit_details:
+            del last_hit_details[lower_nick]
+        return
+
+    # ───────────────────────────────────────────────────────────────
+    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by" lub "suicide"
     # ───────────────────────────────────────────────────────────────
     death_m = re.search(
         r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
@@ -247,16 +269,20 @@ async def process_line(bot, line: str):
     )
     if death_m:
         nick = death_m.group(1).strip()
+        lower_nick = nick.lower()
+
         key = dedup_key("death", nick)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["kill"] += 1
 
-        lower_nick = nick.lower()
-
         # Blokada po linii killed by
-        if now - last_killed_by_time[lower_nick] < 30:
+        if now - last_killed_by_time[lower_nick] < 12:
             return
+
+        water = float(death_m.group(2))
+        energy = float(death_m.group(3))
+        bleed = int(death_m.group(4))
 
         source, weapon_raw, distance = last_hit_details.get(lower_nick, (None, None, None))
 

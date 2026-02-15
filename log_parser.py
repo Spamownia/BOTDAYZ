@@ -6,7 +6,7 @@ from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
 last_death_time       = defaultdict(float)
-last_killed_by_time   = defaultdict(float)   # ← blokada duplikatów po linii "killed by"
+last_killed_by_time   = defaultdict(float)   # blokada duplikatów po linii "killed by"
 player_login_times    = {}
 guid_to_name          = {}
 last_hit_details      = defaultdict(lambda: (None, None, None))  # nick.lower() -> (source, weapon, distance)
@@ -222,7 +222,18 @@ async def process_line(bot, line: str):
 
         dist_str = f" z {distance} m" if distance else ""
         weapon_str = f" ({weapon})" if weapon else ""
-        emoji = "🔫" if "Player" in killer_raw or "AI" in killer_raw else "🧟" if "Infected" in killer_raw else "🐺" if "Wolf" in killer_raw else "☠️"
+
+        # Emoji dla zwierząt
+        if "Wolf" in killer_raw or "CanisLupus" in killer_raw:
+            emoji = "🐺"
+        elif "Bear" in killer_raw:
+            emoji = "🐻"
+        elif "Infected" in killer_raw:
+            emoji = "🧟"
+        elif "Player" in killer_raw or "AI" in killer_raw:
+            emoji = "🔫"
+        else:
+            emoji = "☠️"
 
         msg = f"{date_str} | {log_time} {emoji} {victim} zabity przez {killer}{weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
@@ -230,7 +241,7 @@ async def process_line(bot, line: str):
         return
 
     # ───────────────────────────────────────────────────────────────
-    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by"
+    # LINIA "died. Stats>" – pomijamy jeśli była niedawno "killed by" lub śmierć już wysłana
     # ───────────────────────────────────────────────────────────────
     death_m = re.search(
         r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
@@ -245,8 +256,12 @@ async def process_line(bot, line: str):
 
         lower_nick = nick.lower()
 
-        # Jeśli w ciągu ostatnich 12 sekund była linia killed by → pomijamy wysyłanie
+        # 1. Blokada po linii killed by (najważniejsza)
         if now - last_killed_by_time[lower_nick] < 12:
+            return
+
+        # 2. Dodatkowa blokada – jeśli śmierć była wysłana w ciągu 60 sekund (na wszelki wypadek)
+        if now - last_death_time[lower_nick] < 60:
             return
 
         source, weapon_raw, distance = last_hit_details.get(lower_nick, (None, None, None))
@@ -265,7 +280,7 @@ async def process_line(bot, line: str):
             if "Infected" in source or "Zombie" in source:
                 reason = "zombie / infected"
                 emoji_reason = "🧟"
-            elif "Wolf" in source:
+            elif "Wolf" in source or "CanisLupus" in source:
                 reason = "wilczur szary"
                 emoji_reason = "🐺"
             elif "Bear" in source:
@@ -285,6 +300,7 @@ async def process_line(bot, line: str):
 
         msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason}){weapon_str}{dist_str}"
         await safe_send("kills", msg, "[31m")
+
         last_death_time[lower_nick] = now
 
         if lower_nick in last_hit_details:

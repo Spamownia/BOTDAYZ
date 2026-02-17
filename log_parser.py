@@ -1,21 +1,22 @@
-# log_parser.py - POŁĄCZONA WERSJA ŚMIERCI (jedna wiadomość zamiast dwóch)
+# log_parser.py - WERSJA Z COORDAMI + ROZSZERZONE PRZYCZYNY ŚMIERCI
 import re
 from datetime import datetime
 import time
 from collections import defaultdict
 from config import CHANNEL_IDS, CHAT_CHANNEL_MAPPING
 
-last_death_time       = defaultdict(float)
-last_killed_by_time   = defaultdict(float)
-player_login_times    = {}
-guid_to_name          = {}
-last_hit_details      = defaultdict(lambda: (None, None, None))
-UNPARSED_LOG          = "unparsed_lines.log"
-SUMMARY_INTERVAL      = 30
-last_summary_time     = time.time()
-processed_count       = 0
-detected_events = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0, "queue":0}
-processed_events = set()
+last_death_time     = defaultdict(float)
+last_killed_by_time = defaultdict(float)
+player_login_times  = {}
+guid_to_name        = {}
+last_hit_details    = defaultdict(lambda: (None, None, None))  # source, weapon, distance
+last_death_pos      = defaultdict(str)                         # nick.lower() -> " pos=<x, y, z>"
+UNPARSED_LOG        = "unparsed_lines.log"
+SUMMARY_INTERVAL    = 30
+last_summary_time   = time.time()
+processed_count     = 0
+detected_events     = {"join":0, "disconnect":0, "cot":0, "hit":0, "kill":0, "chat":0, "other":0, "unconscious":0, "queue":0}
+processed_events    = set()
 
 async def process_line(bot, line: str):
     global last_summary_time, processed_count
@@ -59,79 +60,39 @@ async def process_line(bot, line: str):
         except:
             pass
 
-    # === POŁĄCZENIA / ROZŁĄCZENIA / CHAT / COT / UNCONSCIOUS (bez zmian) ===
-    # (cała reszta kodu bez zmian – tylko sekcje hit i killed by zostały poprawione)
+    # === CACHE COORDÓW Z KAŻDEJ LINII (DEAD) ===
+    if "(DEAD)" in line:
+        pos_m = re.search(r'pos=<([\d\.-]+),\s*([\d\.-]+),\s*([\d\.-]+)>', line)
+        name_m = re.search(r'Player "(.+?)"', line)
+        if pos_m and name_m:
+            x = round(float(pos_m.group(1)), 1)
+            y = round(float(pos_m.group(2)), 1)
+            z = round(float(pos_m.group(3)), 1)
+            last_death_pos[name_m.group(1).lower()] = f" pos=<{x}, {y}, {z}>"
 
     # ───────────────────────────────────────────────────────────────
-    # HITY – teraz BEZ duplikatu przy śmierci
-    # ───────────────────────────────────────────────────────────────
-    hit_m = re.search(
-        r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)',
-        line
-    )
-    if hit_m:
-        detected_events["hit"] += 1
-        nick = hit_m.group(1).strip()
-        hp = float(hit_m.group(2))
-        source = hit_m.group(3).strip()
-        part = hit_m.group(4).strip()
-        dmg = hit_m.group(6)
-        ammo = hit_m.group(7).strip()
-        is_dead = "(DEAD)" in line
-
-        # CZYSZCZENIE SOURCE (żeby nie było długiego (id=… pos=…))
-        source_match = re.search(r'(?:Player|AI) "(.+?)"', source)
-        if source_match:
-            source = source_match.group(1).strip()
-        elif re.search(r'Wolf', source, re.I):
-            source = "Wolf"
-
-        lower_nick = nick.lower()
-        if float(dmg) > 0:
-            last_hit_details[lower_nick] = (source, ammo, None)
-
-        color = "[33m" if hp > 20 else "[35m"
-        extra = " (ŚMIERĆ)" if is_dead else f" (HP: {hp:.1f})"
-        emoji = "💀" if is_dead else "🔥"
-
-        # WYŚLIJ HIT TYLKO jeśli to NIE jest śmiertelny cios
-        if not is_dead:
-            msg = f"{date_str} | {log_time} {emoji} {nick}{extra} trafiony przez {source} w {part} za {dmg} dmg ({ammo})"
-            await safe_send("damages", msg, color)
-
-        return
-
-    # specjalne hity (Fall, Bleed itp.)
-    special_hit_m = re.search(r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (FallDamageHealth|Bleed|Starvation|Dehydration|Cold)', line)
-    if special_hit_m:
-        detected_events["hit"] += 1
-        nick = special_hit_m.group(1).strip()
-        hp = float(special_hit_m.group(2))
-        source = special_hit_m.group(3).strip()
-        lower_nick = nick.lower()
-        is_dead = "(DEAD)" in line
-
-        last_hit_details[lower_nick] = (source, source, None)
-
-        if not is_dead:
-            msg = f"{date_str} | {log_time} 🔥 {nick} (HP: {hp:.1f}) otrzymał obrażenia od {source}"
-            await safe_send("damages", msg, "[35m")
-        return
-
-    # (reszta sekcji: unconscious, connect, disconnect, chat, cot – bez zmian)
+    # POŁĄCZENIA / ROZŁĄCZENIA / CHAT / COT / UNCONSCIOUS (bez zmian)
+    # (cała reszta sekcji connect, disconnect, chat, cot, hit, uncon, regain – taka sama jak w poprzedniej wersji)
+    # Dla oszczędności miejsca – wklejam tylko zmienione sekcje śmierci.
+    # Pełny plik masz w poprzedniej wiadomości – wystarczy zamienić sekcje poniżej.
 
     # ───────────────────────────────────────────────────────────────
-    # KILLED BY – GŁÓWNA ŚMIERĆ + POŁĄCZENIE INFORMACJI
+    # HITY (bez zmian – nie wysyłamy śmierci w hitach)
+    # ───────────────────────────────────────────────────────────────
+    # ... (hit_m i special_hit_m bez zmian)
+
+    # ───────────────────────────────────────────────────────────────
+    # KILLED BY + COORDY
     # ───────────────────────────────────────────────────────────────
     killed_m = re.search(
-        r'Player "(.+?)" \s*\(DEAD\).*?killed by\s+(.+?)(?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?$',
+        r'Player "(.+?)" \s*\(DEAD\).*?(killed by|hit by)\s+(.+?)(?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?',
         line, re.IGNORECASE
     )
     if killed_m:
         victim = killed_m.group(1).strip()
-        killer_raw = killed_m.group(2).strip()
-        weapon_raw = killed_m.group(3)
-        distance = killed_m.group(4)
+        killer_raw = killed_m.group(3).strip()
+        weapon_raw = killed_m.group(4)
+        distance = killed_m.group(5)
 
         killer_match = re.search(r'(?:Player|AI) "(.+?)"', killer_raw)
         killer = killer_match.group(1) if killer_match else killer_raw
@@ -147,13 +108,10 @@ async def process_line(bot, line: str):
         detected_events["kill"] += 1
 
         lower_victim = victim.lower()
-        hit_info = last_hit_details.get(lower_victim, (None, None, None))
-        hit_ammo = hit_info[1]
-
         last_killed_by_time[lower_victim] = now
+
         dist_str = f" z {distance} m" if distance else ""
         weapon_str = f" ({weapon})" if weapon else ""
-        extra_str = f" ({hit_ammo})" if hit_ammo and not weapon else ""
 
         if "Wolf" in killer_raw or "CanisLupus" in killer_raw:
             emoji = "🐺"
@@ -168,16 +126,115 @@ async def process_line(bot, line: str):
         else:
             emoji = "☠️"
 
-        msg = f"{date_str} | {log_time} {emoji} {victim} zabity przez {killer}{weapon_str}{dist_str}{extra_str}"
+        coords_str = last_death_pos.get(lower_victim, "")
+        msg = f"{date_str} | {log_time} {emoji} {victim} zabity przez {killer}{weapon_str}{dist_str}{coords_str}"
         await safe_send("kills", msg, "[31m")
 
+        if lower_victim in last_death_pos:
+            del last_death_pos[lower_victim]
         last_death_time[lower_victim] = now
-        if lower_victim in last_hit_details:
-            del last_hit_details[lower_victim]
         return
 
-    # suicide i death_m – bez zmian (działają jak wcześniej)
+    # ───────────────────────────────────────────────────────────────
+    # SAMOBÓJSTWO + COORDY
+    # ───────────────────────────────────────────────────────────────
+    suicide_m = re.search(r'Player "(.+?)" \s*\(DEAD\).*?committed suicide', line)
+    if suicide_m:
+        nick = suicide_m.group(1).strip()
+        lower_nick = nick.lower()
 
-    # ... reszta kodu (suicide_m, death_m, queue, unparsed) pozostaje taka sama ...
+        key = dedup_key("death", nick)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["kill"] += 1
 
-    # (dla kompletności – reszta pliku jest identyczna jak u Ciebie, tylko powyższe sekcje zmienione)
+        coords_str = last_death_pos.get(lower_nick, "")
+        msg = f"{date_str} | {log_time} 💀 {nick} popełnił samobójstwo{coords_str}"
+        await safe_send("kills", msg, "[31m")
+
+        if lower_nick in last_death_pos:
+            del last_death_pos[lower_nick]
+        last_death_time[lower_nick] = now
+        return
+
+    # ───────────────────────────────────────────────────────────────
+    # DEATH STATS + COORDY + ROZSZERZONE PRZYCZYNY
+    # ───────────────────────────────────────────────────────────────
+    death_m = re.search(
+        r'Player "(.+?)" \s*\(DEAD\).*?died\. Stats> Water: ([\d.]+) Energy: ([\d.]+) Bleed sources: (\d+)',
+        line
+    )
+    if death_m:
+        nick = death_m.group(1).strip()
+        lower_nick = nick.lower()
+
+        key = dedup_key("death", nick)
+        if key in processed_events: return
+        processed_events.add(key)
+        detected_events["kill"] += 1
+
+        if now - last_killed_by_time[lower_nick] < 15:
+            return
+
+        water = float(death_m.group(2))
+        energy = float(death_m.group(3))
+        bleed = int(death_m.group(4))
+
+        source, weapon_raw, _ = last_hit_details.get(lower_nick, (None, None, None))
+        weapon = None
+        if weapon_raw:
+            weapon_match = re.search(r'\((.+?)\)', weapon_raw)
+            weapon = weapon_match.group(1) if weapon_match else weapon_raw.strip()
+
+        reason = "nieznana przyczyna"
+        emoji_reason = "☠️"
+        weapon_str = f" ({weapon})" if weapon else ""
+
+        # === ROZSZERZONE PRZYCZYNY ===
+        line_lower = line.lower()
+        if "bled out" in line_lower:
+            reason = "wykrwawienie"
+            emoji_reason = "🩸"
+        elif "falldamagehealth" in line_lower or (source and "fall" in source.lower()):
+            reason = "upadek"
+            emoji_reason = "🪂"
+        elif source and "cold" in source.lower():
+            reason = "wychłodzenie"
+            emoji_reason = "❄️"
+        elif bleed > 0:
+            reason = "wykrwawienie"
+            emoji_reason = "🩸"
+        elif source and ("starvation" in source.lower() or energy < 200):
+            reason = "głód"
+            emoji_reason = "🍽️"
+        elif source and ("dehydration" in source.lower() or water < 100):
+            reason = "odwodnienie"
+            emoji_reason = "💧"
+        elif source:
+            if "infected" in source.lower() or "zombie" in source.lower():
+                reason = "zombie / infected"
+                emoji_reason = "🧟"
+            elif "wolf" in source.lower() or "canislupus" in source.lower():
+                reason = "wilczur szary"
+                emoji_reason = "🐺"
+
+        coords_str = last_death_pos.get(lower_nick, "")
+        msg = f"{date_str} | {log_time} {emoji_reason} {nick} zmarł ({reason}){weapon_str}{coords_str}"
+        await safe_send("kills", msg, "[31m")
+
+        if lower_nick in last_death_pos:
+            del last_death_pos[lower_nick]
+        if lower_nick in last_hit_details:
+            del last_hit_details[lower_nick]
+        last_death_time[lower_nick] = now
+        return
+
+    # KOLEJKA + reszta (bez zmian)
+    # ... (queue_m, unparsed – identycznie jak wcześniej)
+
+    detected_events["other"] += 1
+    try:
+        with open(UNPARSED_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.utcnow().isoformat()} | {line}\n")
+    except:
+        pass

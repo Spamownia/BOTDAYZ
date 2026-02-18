@@ -22,12 +22,12 @@ CHANNEL_IDS = {
     "kills":       1470399610118737983,
     "damages":     1473752689128247346,
     "admin":       1473753246257385626,
-    "chat":        1459919525037478039,
+    "chat":        1459919995919143024,
     "debug":       None,   # ← Zmień na prawdziwe ID jeśli chcesz debug
 }
 
 CHAT_CHANNEL_MAPPING = {
-    "Global": 1459919995919143024,
+    "Global": 1459919525037478039,
     "Admin":  1459919995919143024,
     "Team":   1459919995919143024,
     "Direct": 1459919995919143024,

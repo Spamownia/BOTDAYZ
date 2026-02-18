@@ -1,4 +1,4 @@
-# log_parser.py - WERSJA Z COORDAMI + POPRAWIONE NAZWY ZABÓJCÓW + ROZSZERZONE PRZYCZYNY
+# log_parser.py - WERSJA Z COORDAMI + POPRAWIONE NAZWY ZABÓJCÓW + ROZSZERZONE PRZYCZYNY + STEAMID64 z COT
 import re
 from datetime import datetime
 import time
@@ -9,6 +9,7 @@ last_death_time = defaultdict(float)
 last_killed_by_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
+guid_to_steamid = {}  # NOWE: mapowanie GUID → SteamID64 z linii COT
 last_hit_details = defaultdict(lambda: (None, None, None))  # source, weapon, distance
 last_death_pos = defaultdict(str)  # nick.lower() -> " pos=<x, y, z>"
 UNPARSED_LOG = "unparsed_lines.log"
@@ -82,29 +83,41 @@ async def process_line(bot, line: str):
             last_death_pos[name_m.group(1).lower()] = f" pos=<{x}, {y}, {z}>"
 
     # ───────────────────────────────────────────────────────────────
-    # POŁĄCZENIA – poprawione parsowanie ID
+    # POBIERANIE STEAMID64 Z LINII COT
+    # ───────────────────────────────────────────────────────────────
+    cot_steam_m = re.search(r'\[COT\] (\d{17}): .*?\[guid=([a-zA-Z0-9_=-]+)\]', line)
+    if cot_steam_m:
+        steamid64 = cot_steam_m.group(1)
+        guid = cot_steam_m.group(2)
+        guid_to_steamid[guid] = steamid64
+        # Opcjonalnie możesz tu dodać logowanie lub komunikat, ale na razie tylko zapisujemy mapowanie
+
+    # ───────────────────────────────────────────────────────────────
+    # POŁĄCZENIA
     # ───────────────────────────────────────────────────────────────
     connect_m = re.search(r'Player "(.+?)"\(id=([^)]+)\)\s*is connected', line)
     if connect_m:
         name = connect_m.group(1).strip()
-        player_id = connect_m.group(2).strip()  # GUID / BattlEye ID z ADM
+        guid = connect_m.group(2).strip()
         key = dedup_key("connect", name)
         if key in processed_events: return
         processed_events.add(key)
         detected_events["join"] += 1
         player_login_times[name] = log_dt
-        guid_to_name[player_id] = name
-        msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (ID: {player_id})"
+        guid_to_name[guid] = name
+
+        steamid = guid_to_steamid.get(guid, "brak danych")
+        msg = f"{date_str} | {log_time} 🟢 Połączono → {name} (GUID: {guid}) (SteamID64: {steamid})"
         await safe_send("connections", msg, "[32m")
         return
 
     # ───────────────────────────────────────────────────────────────
-    # ROZŁĄCZENIA – poprawione parsowanie ID
+    # ROZŁĄCZENIA
     # ───────────────────────────────────────────────────────────────
     disconnect_m = re.search(r'Player "(.+?)"\(id=([^)]+)\)\s*has been disconnected', line)
     if disconnect_m:
         name = disconnect_m.group(1).strip()
-        player_id = disconnect_m.group(2).strip()
+        guid = disconnect_m.group(2).strip()
         key = dedup_key("disconnect", name)
         if key in processed_events: return
         processed_events.add(key)
@@ -116,9 +129,11 @@ async def process_line(bot, line: str):
             seconds = int(delta % 60)
             time_online = f"{minutes} min {seconds} s"
             del player_login_times[name]
+
+        steamid = guid_to_steamid.get(guid, "brak danych")
         emoji = "🔴"
         color = "[31m"
-        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (ID: {player_id}) → {time_online}"
+        msg = f"{date_str} | {log_time} {emoji} Rozłączono → {name} (GUID: {guid}) (SteamID64: {steamid}) → {time_online}"
         await safe_send("connections", msg, color)
         return
 

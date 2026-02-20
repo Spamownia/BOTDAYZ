@@ -19,7 +19,7 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
 
 CHANNEL_IDS = {
     "connections": 1459206440836141302,
-    "kills":       1470399610118737983,
+    "kills":       1473752899346497691,
     "damages":     1473752689128247346,
     "admin":       1473753246257385626,
     "chat":        1459919995919143024,

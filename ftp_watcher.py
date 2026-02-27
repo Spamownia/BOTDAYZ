@@ -6,7 +6,6 @@ import os
 import threading
 from datetime import datetime
 from config import FTP_HOST, FTP_PORT, FTP_USER, FTP_PASS, FTP_LOG_DIR
-
 LAST_POSITIONS_FILE = 'last_positions.json'
 
 class DayZLogWatcher:
@@ -96,14 +95,12 @@ class DayZLogWatcher:
             if not files:
                 print("[FTP] Brak plików ADM w katalogu!")
                 return None
-
             def parse_date(fn):
                 try:
                     date_str = fn[15:-4]  # wycina DayZServer_x64_ i .ADM
                     return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
                 except:
                     return datetime.min
-
             latest = max(files, key=parse_date)
             print(f"[FTP] Najnowszy ADM: {latest}")
             return latest
@@ -126,14 +123,12 @@ class DayZLogWatcher:
             if not files:
                 print("[FTP] Brak plików RPT w katalogu!")
                 return None
-
             def parse_date(fn):
                 try:
                     date_str = fn[15:-4]  # wycina DayZServer_x64_ i .RPT
                     return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
                 except:
                     return datetime.min
-
             latest = max(files, key=parse_date)
             print(f"[FTP] Najnowszy RPT: {latest}")
             return latest
@@ -147,46 +142,34 @@ class DayZLogWatcher:
         filename = self._find_latest_adm()
         if not filename:
             return ""
-
         try:
             current_size = self.ftp.size(filename)
-
-            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru (rzadkie)
             if filename != self.last_adm_filename or current_size < self.last_adm_size:
                 print(f"[FTP] Nowy/zrotowany ADM! {self.last_adm_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
                 self.last_adm_filename = filename
                 self.last_adm_pos = 0
                 self.last_adm_size = current_size
-
             if self.last_adm_pos >= current_size:
                 return ""
-
             start_pos = self.last_adm_pos
             data = []
             def callback(block):
                 data.append(block)
-
             print(f"[FTP] Pobieram ADM {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
                 return ""
-
             content = content_bytes.decode('utf-8', errors='replace')
-
             self.last_adm_pos = start_pos + len(content_bytes)
             self.last_adm_size = current_size
-
             lines_count = len(content.splitlines())
             print(f"[FTP] Pobrano {lines_count} nowych linii z ADM")
-
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW ADM] {preview}")
-
             return content
-
         except Exception as e:
             print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
@@ -197,54 +180,42 @@ class DayZLogWatcher:
         filename = self._find_latest_rpt()
         if not filename:
             return ""
-
         try:
             current_size = self.ftp.size(filename)
-
-            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru
             if filename != self.last_rpt_filename or current_size < self.last_rpt_size:
                 print(f"[FTP] Nowy/zrotowany RPT! {self.last_rpt_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
                 self.last_rpt_filename = filename
                 self.last_rpt_pos = 0
                 self.last_rpt_size = current_size
-
             if self.last_rpt_pos >= current_size:
                 return ""
-
             start_pos = self.last_rpt_pos
             data = []
             def callback(block):
                 data.append(block)
-
             print(f"[FTP] Pobieram RPT {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
                 return ""
-
             content = content_bytes.decode('utf-8', errors='replace')
-
             self.last_rpt_pos = start_pos + len(content_bytes)
             self.last_rpt_size = current_size
-
             lines_count = len(content.splitlines())
             print(f"[FTP] Pobrano {lines_count} nowych linii z RPT")
-
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW RPT] {preview}")
-
             return content
-
         except Exception as e:
             print(f"[FTP ERROR RPT {filename}]: {type(e).__name__}: {e}")
             return ""
 
     def get_new_content(self):
-        adm_content = self._get_adm_content()
-        rpt_content = self._get_rpt_content()
-        content = (adm_content + "\n" + rpt_content).strip()
+        rpt_content = self._get_rpt_content()      # Najpierw RPT → kolejka logowania
+        adm_content = self._get_adm_content()      # Potem ADM → połączenia, COT itp.
+        content = (rpt_content + "\n" + adm_content).strip()
         if content:
             self._save_last_positions()
         return content
@@ -255,20 +226,15 @@ class DayZLogWatcher:
             return
         self.running = True
         print("[FTP] Start monitorowania najnowszego ADM i RPT co 25–35 sekund")
-
         def loop():
             while self.running:
                 try:
                     content = self.get_new_content()
                     if content:
                         print(f"[FTP] Nowe dane ADM/RPT – {len(content.splitlines())} linii")
-                        # Tutaj w Twoim głównym skrypcie powinien być parser:
-                        # for line in content.splitlines():
-                        #     await process_line(bot, line)
                 except Exception as e:
                     print(f"[FTP LOOP ERROR] {e}")
                 time.sleep(28 + (time.time() % 7))  # 25–35 s losowo
-
         threading.Thread(target=loop, daemon=True).start()
 
     def stop(self):

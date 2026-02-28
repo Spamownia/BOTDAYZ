@@ -73,7 +73,7 @@ async def process_line(bot, line: str):
     # CACHE COORDYNAT Z KAŻDEJ LINII Z (DEAD)
     if "(DEAD)" in line:
         pos_m = re.search(r'pos=<([\d\.-]+),\s*([\d\.-]+),\s*([\d\.-]+)>', line)
-        name_m = re.search(r'Player "(.+?)"', line)
+        name_m = re.search(r'(?:Player|AI) "(.+?)"', line)
         if pos_m and name_m:
             x = round(float(pos_m.group(1)), 1)
             y = round(float(pos_m.group(2)), 1)
@@ -151,17 +151,20 @@ async def process_line(bot, line: str):
 
     # HITY (tylko nieśmiertelne)
     hit_m = re.search(
-        r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)',
+        r'(Player|AI) "(.+?)" .*?\[HP: ([\d.]+)\] hit by (.+?) into (.+?)\((\d+)\) for ([\d.]+) damage \((.+?)\)',
         line
     )
     if hit_m and "(DEAD)" not in line:
         detected_events["hit"] += 1
-        nick = hit_m.group(1).strip()
-        hp = float(hit_m.group(2))
-        source = hit_m.group(3).strip()
-        part = hit_m.group(4).strip()
-        dmg = hit_m.group(6)
-        ammo = hit_m.group(7).strip()
+        nick_type = hit_m.group(1)
+        nick = hit_m.group(2).strip()
+        if nick_type == 'AI':
+            nick += " (AI)"
+        hp = float(hit_m.group(3))
+        source = hit_m.group(4).strip()
+        part = hit_m.group(5).strip()
+        dmg = hit_m.group(7)
+        ammo = hit_m.group(8).strip()
         source_match = re.search(r'(?:Player|AI) "(.+?)"', source)
         if source_match:
             source = source_match.group(1).strip()
@@ -176,12 +179,15 @@ async def process_line(bot, line: str):
         await safe_send("damages", msg, color)
         return
 
-    special_hit_m = re.search(r'Player "(.+?)" .*?\[HP: ([\d.]+)\] hit by (FallDamageHealth|Bleed|Starvation|Dehydration|Cold)', line)
+    special_hit_m = re.search(r'(Player|AI) "(.+?)" .*?\[HP: ([\d.]+)\] hit by (FallDamageHealth|Bleed|Starvation|Dehydration|Cold)', line)
     if special_hit_m and "(DEAD)" not in line:
         detected_events["hit"] += 1
-        nick = special_hit_m.group(1).strip()
-        hp = float(special_hit_m.group(2))
-        source = special_hit_m.group(3).strip()
+        nick_type = special_hit_m.group(1)
+        nick = special_hit_m.group(2).strip()
+        if nick_type == 'AI':
+            nick += " (AI)"
+        hp = float(special_hit_m.group(3))
+        source = special_hit_m.group(4).strip()
         lower_nick = nick.lower()
         last_hit_details[lower_nick] = (source, source, None)
         msg = f"{date_str} | {log_time} 🔥 {nick} (HP: {hp:.1f}) otrzymał obrażenia od {source}"
@@ -191,12 +197,12 @@ async def process_line(bot, line: str):
     # FUNKCJA CZYSZCZENIA NAZWY ZABÓJCY
     def clean_killer(raw: str) -> str:
         raw = raw.strip()
-        m = re.search(r'Player "(.+?)"', raw)
+        m = re.search(r'(?:Player|AI) "(.+?)"', raw)
         if m:
-            return m.group(1).strip()
-        m = re.search(r'AI "(.+?)"', raw)
-        if m:
-            return f"{m.group(1).strip()} (AI)"
+            name = m.group(1).strip()
+            if 'AI' in raw:
+                return f"{name} (AI)"
+            return name
         if re.search(r'(?i)(wolf|canislupus)', raw):
             return "wilczur szary"
         if re.search(r'(?i)bear', raw):
@@ -216,16 +222,19 @@ async def process_line(bot, line: str):
             return " ".join(parts[:3])
         return raw or "nieznany"
 
-    # KILLED BY
+    # KILLED BY – obsługa zarówno Player jak i AI w roli ofiary
     killed_m = re.search(
-        r'Player "(.+?)" \s*\(DEAD\).*?(?:killed by|hit by)\s+(.+?)(?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?$',
+        r'(Player|AI) "(.+?)" \s*\(DEAD\).*?(?:killed by|hit by)\s+(.+?)(?:\s+with\s+(.+?))?(?:\s+from\s+([\d.]+)\s*meters)?$',
         line, re.IGNORECASE
     )
     if killed_m:
-        victim = killed_m.group(1).strip()
-        killer_raw = killed_m.group(2).strip()
-        weapon_raw = killed_m.group(3)
-        distance = killed_m.group(4)
+        victim_type = killed_m.group(1)
+        victim = killed_m.group(2).strip()
+        if victim_type == 'AI':
+            victim += " (AI)"
+        killer_raw = killed_m.group(3).strip()
+        weapon_raw = killed_m.group(4)
+        distance = killed_m.group(5)
         killer = clean_killer(killer_raw)
         weapon = None
         if weapon_raw:

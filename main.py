@@ -8,15 +8,15 @@ import warnings
 import logging
 import time
 from datetime import datetime
+import signal   # ← NOWE: do łapania SIGTERM od Rendera
 
 # Importy z Twoich plików
 from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRICS_SERVER_ID
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
-# Wyciszenie ostrzeżeń – zostawiamy, ale już nie będzie potrzebne po poprawkach
+# Wyciszenie ostrzeżeń – możesz zostawić na razie, potem usuń
 warnings.filterwarnings("ignore", category=ResourceWarning)
-# Te trzy linie można już bezpiecznie usunąć po testach – ale zostawiam na wszelki wypadek
 warnings.filterwarnings("ignore", message="Unclosed client session")
 warnings.filterwarnings("ignore", message="Unclosed.*ClientSession")
 logging.getLogger("aiohttp").setLevel(logging.ERROR)
@@ -54,12 +54,11 @@ def run_health_server():
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # ────────────────────────────────────────────────
-# Status BattleMetrics – bez zmian (requests nie powoduje unclosed session)
+# Status BattleMetrics – bez zmian
 # ────────────────────────────────────────────────
 @tasks.loop(seconds=60)
 async def update_status():
     server_id = BATTLEMETRICS_SERVER_ID
-   
     print(f"[STATUS DEBUG] Wartość BATTLEMETRICS_SERVER_ID = '{server_id}' (typ: {type(server_id).__name__})")
    
     if not server_id or not str(server_id).strip().isdigit():
@@ -133,7 +132,7 @@ def run_watcher_loop():
         time.sleep(30)
 
 # ────────────────────────────────────────────────
-# on_ready + test kanałów – bez zmian
+# on_ready – bez zmian
 # ────────────────────────────────────────────────
 @client.event
 async def on_ready():
@@ -158,8 +157,7 @@ async def on_ready():
         ch = client.get_channel(ch_id)
         if ch:
             test_msg = f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
-            print(f"[TEST] {test_msg}")  # Tylko w konsoli
-            # await ch.send(test_msg)   # <- zakomentowane jak było
+            print(f"[TEST] {test_msg}")
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 
@@ -169,80 +167,64 @@ async def on_ready():
     await check_and_parse_new_content()
 
 # ────────────────────────────────────────────────
-# Bezpieczne uruchamianie + porządne zamykanie (tutaj główna poprawka)
+# Shutdown handler – teraz łapie SIGTERM od Rendera
 # ────────────────────────────────────────────────
-async def safe_run_bot():
-    backoff = 5
-    max_backoff = 900  # max 15 minut
+shutdown_requested = False
 
-    while True:
-        try:
-            print("[BOT] Próba logowania do Discorda...")
-            await client.start(DISCORD_TOKEN)
-            break
-        except discord.errors.LoginFailure:
-            print("[FATAL] Nieprawidłowy token – wyłączam")
-            return
-        except Exception as e:
-            print(f"[CRITICAL] {e} – retry za {backoff}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)
+async def graceful_shutdown():
+    global shutdown_requested
+    if shutdown_requested:
+        return
+    shutdown_requested = True
 
-async def shutdown():
-    """Porządne zamknięcie zasobów przy wyłączaniu"""
-    print("[SHUTDOWN] Zamykanie bota...")
+    print("[SHUTDOWN] Render wysłał SIGTERM – zamykam czysto...")
+
     try:
         if update_status.is_running():
             update_status.cancel()
-            print("[SHUTDOWN] Anulowano task update_status")
+            print("[SHUTDOWN] Anulowano update_status")
     except:
         pass
 
-    try:
-        if hasattr(client, 'http') and client.http.session is not None:
-            print("[SHUTDOWN] Zamykam wewnętrzną sesję aiohttp discord.py...")
-            await client.http.session.close()
-    except:
-        pass
+    # Najpierw anuluj wszystkie taski
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
-    try:
-        print("[SHUTDOWN] Zamykam klienta Discord...")
-        await client.close()
-    except:
-        pass
+    # Zamknij sesję aiohttp discord.py
+    if hasattr(client, 'http') and client.http.session is not None and not client.http.session.closed:
+        print("[SHUTDOWN] Zamykam aiohttp session...")
+        await client.http.session.close()
+
+    # Zamknij klienta
+    print("[SHUTDOWN] Zamykam klienta Discord...")
+    await client.close()
+
+    print("[SHUTDOWN] Gotowe – mogę umrzeć.")
+
+def signal_handler(sig, frame):
+    asyncio.create_task(graceful_shutdown())
+    # Nie kończymy od razu – dajemy asyncio szansę na await
+
+# ────────────────────────────────────────────────
+# Główna funkcja
+# ────────────────────────────────────────────────
+async def main():
+    # Łapiemy SIGTERM (Render) i SIGINT (Ctrl+C)
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, signal_handler, sig, None)
+
+    print("[BOT] Próba logowania...")
+    await client.start(DISCORD_TOKEN)
 
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        loop.run_until_complete(safe_run_bot())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("[MAIN] Wyłączanie (Ctrl+C)")
+        print("[MAIN] Ctrl+C – wychodzę")
     except Exception as e:
         print(f"[MAIN FATAL] {e}")
     finally:
-        print("[MAIN] Kończenie – czyszczenie sesji...")
-        try:
-            loop.run_until_complete(shutdown())
-        except:
-            pass
-
-        # Standardowe porządne sprzątanie pętli asyncio
-        try:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        except:
-            pass
-
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.run_until_complete(loop.shutdown_default_executor())
-        except:
-            pass
-
-        if not loop.is_closed():
-            loop.close()
-        print("[MAIN] Bot wyłączony czysto.")
+        print("[MAIN] Kończenie programu.")

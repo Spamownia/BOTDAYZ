@@ -18,19 +18,19 @@ if not all([FTP_HOST, FTP_USER, FTP_PASS]):
     raise ValueError("Brak danych FTP!")
 
 CHANNEL_IDS = {
-    "connections": 1459206440836141302,
-    "kills":       1473752899346497691,
-    "damages":     1473752689128247346,
-    "admin":       1473753246257385626,
-    "chat":        1459919995919143024,
+    "connections": 1470164739714977918,
+    "kills":       1470399610118737983,
+    "damages":     1470164873752084743,
+    "admin":       1470399223978655856,
+    "chat":        1470399380875120661,
     "debug":       None,   # ← Zmień na prawdziwe ID jeśli chcesz debug
 }
 
 CHAT_CHANNEL_MAPPING = {
-    "Global": 1459919525037478039,
-    "Admin":  1473753246257385626,
-    "Team":   1459919995919143024,
-    "Direct": 1459919995919143024,
+    "Global": 1470399380875120661,
+    "Admin":  1470399380875120661,
+    "Team":   1470399380875120661,
+    "Direct": 1470399380875120661,
     "Unknown":None
 }
 

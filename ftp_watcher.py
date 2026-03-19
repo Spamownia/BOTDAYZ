@@ -64,15 +64,13 @@ class DayZLogWatcher:
     def _connect(self):
         for attempt in range(1, 4):
             try:
-                if self.ftp is not None:
+                if self.ftp:
                     try:
                         self.ftp.quit()
                     except:
                         pass
-                    self.ftp = None
-
-                self.ftp = FTP(timeout=20)
-                self.ftp.connect(FTP_HOST, FTP_PORT, timeout=20)
+                self.ftp = FTP()
+                self.ftp.connect(FTP_HOST, FTP_PORT, timeout=25)
                 self.ftp.login(FTP_USER, FTP_PASS)
                 self.ftp.cwd(FTP_LOG_DIR)
                 print(f"[FTP] Połączono → {FTP_LOG_DIR}")
@@ -148,96 +146,100 @@ class DayZLogWatcher:
             return ""
         filename = self._find_latest_adm()
         if not filename:
-            if self.ftp:
-                try: self.ftp.quit()
-                except: pass
             return ""
+
         try:
             current_size = self.ftp.size(filename)
+
+            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru (rzadkie)
             if filename != self.last_adm_filename or current_size < self.last_adm_size:
                 print(f"[FTP] Nowy/zrotowany ADM! {self.last_adm_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
                 self.last_adm_filename = filename
                 self.last_adm_pos = 0
                 self.last_adm_size = current_size
+
             if self.last_adm_pos >= current_size:
                 return ""
+
             start_pos = self.last_adm_pos
             data = []
             def callback(block):
                 data.append(block)
+
             print(f"[FTP] Pobieram ADM {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
                 return ""
+
             content = content_bytes.decode('utf-8', errors='replace')
+
             self.last_adm_pos = start_pos + len(content_bytes)
             self.last_adm_size = current_size
+
             lines_count = len(content.splitlines())
             print(f"[FTP] Pobrano {lines_count} nowych linii z ADM")
+
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW ADM] {preview}")
+
             return content
+
         except Exception as e:
             print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
-        finally:
-            if self.ftp:
-                try:
-                    self.ftp.quit()
-                except:
-                    pass
-            self.ftp = None
 
     def _get_rpt_content(self):
         if not self._connect():
             return ""
         filename = self._find_latest_rpt()
         if not filename:
-            if self.ftp:
-                try: self.ftp.quit()
-                except: pass
             return ""
+
         try:
             current_size = self.ftp.size(filename)
+
+            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru
             if filename != self.last_rpt_filename or current_size < self.last_rpt_size:
                 print(f"[FTP] Nowy/zrotowany RPT! {self.last_rpt_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
                 self.last_rpt_filename = filename
                 self.last_rpt_pos = 0
                 self.last_rpt_size = current_size
+
             if self.last_rpt_pos >= current_size:
                 return ""
+
             start_pos = self.last_rpt_pos
             data = []
             def callback(block):
                 data.append(block)
+
             print(f"[FTP] Pobieram RPT {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
             if not content_bytes:
                 return ""
+
             content = content_bytes.decode('utf-8', errors='replace')
+
             self.last_rpt_pos = start_pos + len(content_bytes)
             self.last_rpt_size = current_size
+
             lines_count = len(content.splitlines())
             print(f"[FTP] Pobrano {lines_count} nowych linii z RPT")
+
             if content:
                 preview = content.replace('\n', ' │ ')[:280].rstrip() + '…'
                 print(f"[PREVIEW RPT] {preview}")
+
             return content
+
         except Exception as e:
             print(f"[FTP ERROR RPT {filename}]: {type(e).__name__}: {e}")
             return ""
-        finally:
-            if self.ftp:
-                try:
-                    self.ftp.quit()
-                except:
-                    pass
-            self.ftp = None
 
     def get_new_content(self):
         adm_content = self._get_adm_content()
@@ -260,6 +262,9 @@ class DayZLogWatcher:
                     content = self.get_new_content()
                     if content:
                         print(f"[FTP] Nowe dane ADM/RPT – {len(content.splitlines())} linii")
+                        # Tutaj w Twoim głównym skrypcie powinien być parser:
+                        # for line in content.splitlines():
+                        #     await process_line(bot, line)
                 except Exception as e:
                     print(f"[FTP LOOP ERROR] {e}")
                 time.sleep(28 + (time.time() % 7))  # 25–35 s losowo

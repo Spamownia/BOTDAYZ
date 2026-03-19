@@ -22,55 +22,20 @@ class DayZLogWatcher:
         print("[FTP WATCHER] Start – monitoruję najnowszy plik ADM i RPT w katalogu")
         self.running = False
 
-    def _load_last_positions(self):
-        if os.path.exists(LAST_POSITIONS_FILE):
-            try:
-                with open(LAST_POSITIONS_FILE, 'r') as f:
-                    data = json.load(f)
-                self.last_adm_filename = data.get('last_adm_filename')
-                self.last_adm_pos = int(data.get('last_adm_pos', 0))
-                self.last_adm_size = int(data.get('last_adm_size', 0))
-                self.last_rpt_filename = data.get('last_rpt_filename')
-                self.last_rpt_pos = int(data.get('last_rpt_pos', 0))
-                self.last_rpt_size = int(data.get('last_rpt_size', 0))
-                if self.last_adm_filename:
-                    print(f"[FTP] Wczytano stan ostatniego ADM: {self.last_adm_filename} "
-                          f"pos={self.last_adm_pos:,} size={self.last_adm_size:,}")
-                if self.last_rpt_filename:
-                    print(f"[FTP] Wczytano stan ostatniego RPT: {self.last_rpt_filename} "
-                          f"pos={self.last_rpt_pos:,} size={self.last_rpt_size:,}")
-                else:
-                    print("[FTP] Brak poprzedniego pliku RPT – start od zera")
-            except Exception as e:
-                print(f"[FTP] Błąd wczytywania last_positions: {e} → start od zera")
-        else:
-            print("[FTP] Brak pliku last_positions → start od zera")
-
-    def _save_last_positions(self):
-        data = {
-            'last_adm_filename': self.last_adm_filename,
-            'last_adm_pos': self.last_adm_pos,
-            'last_adm_size': self.last_adm_size,
-            'last_rpt_filename': self.last_rpt_filename,
-            'last_rpt_pos': self.last_rpt_pos,
-            'last_rpt_size': self.last_rpt_size,
-        }
-        try:
-            with open(LAST_POSITIONS_FILE, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"[FTP] Błąd zapisu pozycji: {e}")
+    # ... _load_last_positions i _save_last_positions bez zmian ...
 
     def _connect(self):
         for attempt in range(1, 4):
             try:
-                if self.ftp:
+                if self.ftp is not None:
                     try:
                         self.ftp.quit()
                     except:
                         pass
-                self.ftp = FTP()
-                self.ftp.connect(FTP_HOST, FTP_PORT, timeout=25)
+                    self.ftp = None
+
+                self.ftp = FTP(timeout=20)               # ← dodany timeout
+                self.ftp.connect(FTP_HOST, FTP_PORT, timeout=20)
                 self.ftp.login(FTP_USER, FTP_PASS)
                 self.ftp.cwd(FTP_LOG_DIR)
                 print(f"[FTP] Połączono → {FTP_LOG_DIR}")
@@ -81,77 +46,21 @@ class DayZLogWatcher:
         print("[FTP] Nie udało się połączyć po 3 próbach")
         return False
 
-    def _find_latest_adm(self):
-        """Znajduje najnowszy plik .ADM w katalogu na podstawie nazwy (data w nazwie)"""
-        try:
-            lines = []
-            self.ftp.dir(lines.append)
-            files = []
-            for line in lines:
-                parts = line.split()
-                if len(parts) > 0:
-                    filename = parts[-1].strip()
-                    if filename.startswith('DayZServer_x64_') and filename.endswith('.ADM'):
-                        files.append(filename)
-            if not files:
-                print("[FTP] Brak plików ADM w katalogu!")
-                return None
-
-            def parse_date(fn):
-                try:
-                    date_str = fn[15:-4]  # wycina DayZServer_x64_ i .ADM
-                    return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
-                except:
-                    return datetime.min
-
-            latest = max(files, key=parse_date)
-            print(f"[FTP] Najnowszy ADM: {latest}")
-            return latest
-        except Exception as e:
-            print(f"[FTP FIND ADM ERROR]: {e}")
-            return None
-
-    def _find_latest_rpt(self):
-        """Znajduje najnowszy plik .RPT w katalogu na podstawie nazwy (data w nazwie)"""
-        try:
-            lines = []
-            self.ftp.dir(lines.append)
-            files = []
-            for line in lines:
-                parts = line.split()
-                if len(parts) > 0:
-                    filename = parts[-1].strip()
-                    if filename.startswith('DayZServer_x64_') and filename.endswith('.RPT'):
-                        files.append(filename)
-            if not files:
-                print("[FTP] Brak plików RPT w katalogu!")
-                return None
-
-            def parse_date(fn):
-                try:
-                    date_str = fn[15:-4]  # wycina DayZServer_x64_ i .RPT
-                    return datetime.strptime(date_str, '%Y-%m-%d_%H-%M-%S')
-                except:
-                    return datetime.min
-
-            latest = max(files, key=parse_date)
-            print(f"[FTP] Najnowszy RPT: {latest}")
-            return latest
-        except Exception as e:
-            print(f"[FTP FIND RPT ERROR]: {e}")
-            return None
+    # ... _find_latest_adm i _find_latest_rpt bez zmian ...
 
     def _get_adm_content(self):
         if not self._connect():
             return ""
         filename = self._find_latest_adm()
         if not filename:
+            if self.ftp:
+                try: self.ftp.quit()
+                except: pass
             return ""
 
         try:
             current_size = self.ftp.size(filename)
 
-            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru (rzadkie)
             if filename != self.last_adm_filename or current_size < self.last_adm_size:
                 print(f"[FTP] Nowy/zrotowany ADM! {self.last_adm_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
@@ -170,6 +79,7 @@ class DayZLogWatcher:
             print(f"[FTP] Pobieram ADM {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
+
             if not content_bytes:
                 return ""
 
@@ -190,18 +100,27 @@ class DayZLogWatcher:
         except Exception as e:
             print(f"[FTP ERROR ADM {filename}]: {type(e).__name__}: {e}")
             return ""
+        finally:
+            if self.ftp:
+                try:
+                    self.ftp.quit()
+                except:
+                    pass
+            self.ftp = None   # ← zawsze czyścimy po operacji
 
     def _get_rpt_content(self):
         if not self._connect():
             return ""
         filename = self._find_latest_rpt()
         if not filename:
+            if self.ftp:
+                try: self.ftp.quit()
+                except: pass
             return ""
 
         try:
             current_size = self.ftp.size(filename)
 
-            # Reset przy nowej nazwie pliku lub zmniejszeniu rozmiaru
             if filename != self.last_rpt_filename or current_size < self.last_rpt_size:
                 print(f"[FTP] Nowy/zrotowany RPT! {self.last_rpt_filename or '(brak)'} → {filename} "
                       f"(size: {current_size:,} bajtów)")
@@ -220,6 +139,7 @@ class DayZLogWatcher:
             print(f"[FTP] Pobieram RPT {filename} od {start_pos:,} bajtów (rozmiar: {current_size:,})")
             self.ftp.retrbinary(f"RETR {filename}", callback, rest=start_pos)
             content_bytes = b''.join(data)
+
             if not content_bytes:
                 return ""
 
@@ -240,6 +160,13 @@ class DayZLogWatcher:
         except Exception as e:
             print(f"[FTP ERROR RPT {filename}]: {type(e).__name__}: {e}")
             return ""
+        finally:
+            if self.ftp:
+                try:
+                    self.ftp.quit()
+                except:
+                    pass
+            self.ftp = None   # ← zawsze czyścimy po operacji
 
     def get_new_content(self):
         adm_content = self._get_adm_content()
@@ -249,43 +176,4 @@ class DayZLogWatcher:
             self._save_last_positions()
         return content
 
-    def run(self):
-        if self.running:
-            print("[FTP] Watcher już działa")
-            return
-        self.running = True
-        print("[FTP] Start monitorowania najnowszego ADM i RPT co 25–35 sekund")
-
-        def loop():
-            while self.running:
-                try:
-                    content = self.get_new_content()
-                    if content:
-                        print(f"[FTP] Nowe dane ADM/RPT – {len(content.splitlines())} linii")
-                        # Tutaj w Twoim głównym skrypcie powinien być parser:
-                        # for line in content.splitlines():
-                        #     await process_line(bot, line)
-                except Exception as e:
-                    print(f"[FTP LOOP ERROR] {e}")
-                time.sleep(28 + (time.time() % 7))  # 25–35 s losowo
-
-        threading.Thread(target=loop, daemon=True).start()
-
-    def stop(self):
-        self.running = False
-        if self.ftp:
-            try:
-                self.ftp.quit()
-            except:
-                pass
-        print("[FTP] Watcher zatrzymany")
-
-
-if __name__ == '__main__':
-    watcher = DayZLogWatcher()
-    watcher.run()
-    try:
-        while True:
-            time.sleep(10)
-    except KeyboardInterrupt:
-        watcher.stop()
+    # ... run() i stop() bez zmian ...

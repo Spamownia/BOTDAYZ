@@ -14,11 +14,13 @@ from config import DISCORD_TOKEN, CHANNEL_IDS, CHAT_CHANNEL_MAPPING, BATTLEMETRI
 from ftp_watcher import DayZLogWatcher
 from log_parser import process_line
 
-# Wyciszenie ostrzeżeń (pozostawiamy, ale dodajemy bardziej precyzyjne)
+# Wyciszenie ostrzeżeń
 warnings.filterwarnings("ignore", category=ResourceWarning)
-logging.getLogger("asyncio").setLevel(logging.WARNING)
-logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
+warnings.filterwarnings("ignore", message="Unclosed client session")
+warnings.filterwarnings("ignore", message="Unclosed.*ClientSession")
+logging.getLogger("aiohttp").setLevel(logging.ERROR)
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+logging.getLogger("urllib3").setLevel(logging.ERROR)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -29,7 +31,7 @@ client = commands.Bot(command_prefix="!", intents=intents)
 watcher = DayZLogWatcher()
 
 # ────────────────────────────────────────────────
-# Prosty serwer health-check (na Render) – poprawiony port
+# Prosty serwer health-check (na Render)
 # ────────────────────────────────────────────────
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -45,24 +47,22 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
 
 def run_health_server():
-    # Render przekazuje PORT przez zmienną środowiskową – używamy jej
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    print(f"[HEALTH] Uruchamiam health-check na :{port}")
+    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
+    print("[HEALTH] Uruchamiam health-check na :10000")
     server.serve_forever()
 
 
 threading.Thread(target=run_health_server, daemon=True).start()
 
 # ────────────────────────────────────────────────
-# Status BattleMetrics – bez zmian
+# Status BattleMetrics – WERSJA Z BARDZO DOBRYM DEBUGIEM
 # ────────────────────────────────────────────────
 @tasks.loop(seconds=60)
 async def update_status():
     server_id = BATTLEMETRICS_SERVER_ID
-   
+    
     print(f"[STATUS DEBUG] Wartość BATTLEMETRICS_SERVER_ID = '{server_id}' (typ: {type(server_id).__name__})")
-   
+    
     if not server_id or not str(server_id).strip().isdigit():
         print("[STATUS] Brak poprawnego ID BattleMetrics → ustawiam fallback")
         try:
@@ -81,7 +81,7 @@ async def update_status():
         if r.status_code != 200:
             error_text = r.text[:300].replace('\n', ' ') if r.text else '(brak treści)'
             print(f"[STATUS ERROR] HTTP {r.status_code} → {error_text}")
-           
+            
             if r.status_code == 404:
                 await client.change_presence(activity=discord.Game("Serwer nie znaleziony w BM"))
             elif r.status_code == 429:
@@ -92,10 +92,10 @@ async def update_status():
 
         data = r.json()
         attrs = data.get("data", {}).get("attributes", {})
-       
+        
         players = attrs.get("players", "?")
         max_players = attrs.get("maxPlayers", "?")
-       
+        
         status_text = f"{players}/{max_players} online"
         print(f"[STATUS SUCCESS] Ustawiam: {status_text}")
 
@@ -109,15 +109,17 @@ async def update_status():
         await client.change_presence(activity=discord.Game("Błąd statusu"))
 
 # ────────────────────────────────────────────────
-# Pętla sprawdzania logów – dodajemy lepszą obsługę błędów w pętli
+# Pętla sprawdzania logów
 # ────────────────────────────────────────────────
 async def check_and_parse_new_content():
     content = watcher.get_new_content()
     if not content:
         print("[CHECK] Brak nowych danych z FTP")
         return
+
     lines = [l.strip() for l in content.splitlines() if l.strip()]
     print(f"[CHECK] Przetwarzam {len(lines)} linii ({datetime.utcnow().strftime('%H:%M:%S')})")
+
     for line in lines:
         try:
             await process_line(client, line)
@@ -129,15 +131,13 @@ def run_watcher_loop():
     while True:
         try:
             future = asyncio.run_coroutine_threadsafe(check_and_parse_new_content(), client.loop)
-            future.result(timeout=20)   # zwiększony timeout – 15→20
-        except asyncio.TimeoutError:
-            print("[WATCHER THREAD] Timeout przetwarzania – kontynuuję")
+            future.result(timeout=15)
         except Exception as e:
-            print(f"[WATCHER THREAD ERROR] {type(e).__name__}: {e}")
+            print(f"[WATCHER THREAD ERROR] {e}")
         time.sleep(30)
 
 # ────────────────────────────────────────────────
-# on_ready + test kanałów – bez zmian
+# on_ready + test kanałów
 # ────────────────────────────────────────────────
 @client.event
 async def on_ready():
@@ -166,6 +166,11 @@ async def on_ready():
             test_msg = f"**TEST START {name.upper()}** – bot widzi kanał 🟢 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
             print(f"[TEST] {test_msg}")  # Tylko w konsoli rendera
             # Zakomentowane – nie wysyła na Discord
+            # try:
+            #     await ch.send(test_msg)
+            #     print(f"[TEST] Wiadomość testowa WYSŁANA na {name}")
+            # except Exception as e:
+            #     print(f"[TEST SEND {name}] {e}")
         else:
             print(f"[TEST] {name} → kanał {ch_id} nie znaleziony")
 
@@ -175,23 +180,49 @@ async def on_ready():
 
     await check_and_parse_new_content()
 
-# ────────────────────────────────────────────────
-# Bezpieczne uruchamianie – upraszczamy + używamy bot.run()
-# ────────────────────────────────────────────────
-if __name__ == "__main__":
-    if not DISCORD_TOKEN:
-        print("[FATAL] Brak DISCORD_TOKEN w zmiennych środowiskowych!")
-        exit(1)
 
-    print("[MAIN] Uruchamiam bota...")
+# ────────────────────────────────────────────────
+# Bezpieczne uruchamianie + czyszczenie sesji
+# ────────────────────────────────────────────────
+async def safe_run_bot():
+    backoff = 5
+    max_backoff = 900  # max 15 minut
+    while True:
+        try:
+            print("[BOT] Próba logowania do Discorda...")
+            await client.start(DISCORD_TOKEN)
+            break
+        except discord.errors.LoginFailure:
+            print("[FATAL] Nieprawidłowy token – wyłączam")
+            return
+        except Exception as e:
+            print(f"[CRITICAL] {e} – retry za {backoff}s")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+
+
+if __name__ == "__main__":
     try:
-        client.run(DISCORD_TOKEN)
+        asyncio.run(safe_run_bot())
     except KeyboardInterrupt:
-        print("[MAIN] Wyłączanie (Ctrl+C / SIGTERM)")
-    except discord.LoginFailure:
-        print("[FATAL] Nieprawidłowy token")
+        print("[MAIN] Wyłączanie (Ctrl+C)")
     except Exception as e:
-        print(f"[MAIN FATAL] {type(e).__name__}: {e}")
+        print(f"[MAIN FATAL] {e}")
     finally:
-        print("[MAIN] Kończenie...")
-        # discord.py sam zamyka sesję przy client.run() – nie trzeba ręcznie
+        print("[MAIN] Kończenie – czyszczenie sesji...")
+        try:
+            if hasattr(client, 'http') and client.http.session is not None:
+                print("[MAIN] Zamykam sesję HTTP discord.py...")
+                asyncio.run_coroutine_threadsafe(client.http.session.close(), client.loop)
+        except:
+            pass
+
+        try:
+            loop = asyncio.get_event_loop()
+            if not loop.is_closed():
+                loop.run_until_complete(client.close())
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+                loop.close()
+        except:
+            pass

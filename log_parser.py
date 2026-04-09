@@ -9,9 +9,10 @@ last_death_time = defaultdict(float)
 last_killed_by_time = defaultdict(float)
 player_login_times = {}
 guid_to_name = {}
-guid_to_steamid = {}  # mapowanie GUID → SteamID64 z linii COT
-last_hit_details = defaultdict(lambda: (None, None, None))  # source, weapon, distance
-last_death_pos = defaultdict(str)  # nick.lower() -> " pos=<x, y, z>"
+guid_to_steamid = {} # mapowanie GUID → SteamID64 z linii COT
+last_hit_details = defaultdict(lambda: (None, None, None)) # source, weapon, distance
+last_death_pos = defaultdict(str) # nick.lower() -> " pos=<x, y, z>"
+
 UNPARSED_LOG = "unparsed_lines.log"
 SUMMARY_INTERVAL = 30
 last_summary_time = time.time()
@@ -88,14 +89,13 @@ async def process_line(bot, line: str):
         guid = cot_m.group(3) if cot_m.group(3) else "brak GUID"
         if guid != "brak GUID":
             guid_to_steamid[guid] = steamid64
-
         detected_events["cot"] += 1
         msg = f"{date_str} | {log_time} 🛠️ [COT] {action} | SteamID64: {steamid64} (GUID: {guid})"
-        await safe_send("admin", msg, "[36m")  # cyan / niebieski
+        await safe_send("admin", msg, "[36m") # cyan / niebieski
         return
 
-    # POŁĄCZENIA
-    connect_m = re.search(r'Player "(.+?)"\(id=([^)]+)\)\s*is connected', line)
+    # POŁĄCZENIA – POPRAWIONY REGEX
+    connect_m = re.search(r'Player "(.+?)"\s*\(id=([^)\s]+)(?:\s+pos=<[^>]+>)?\)\s*is connected', line)
     if connect_m:
         name = connect_m.group(1).strip()
         guid = connect_m.group(2).strip()
@@ -110,8 +110,8 @@ async def process_line(bot, line: str):
         await safe_send("connections", msg, "[32m")
         return
 
-    # ROZŁĄCZENIA
-    disconnect_m = re.search(r'Player "(.+?)"\(id=([^)]+)\)\s*has been disconnected', line)
+    # ROZŁĄCZENIA – POPRAWIONY REGEX
+    disconnect_m = re.search(r'Player "(.+?)"\s*\(id=([^)\s]+)(?:\s+pos=<[^>]+>)?\)\s*has been disconnected', line)
     if disconnect_m:
         name = disconnect_m.group(1).strip()
         guid = disconnect_m.group(2).strip()
